@@ -41,18 +41,11 @@ def mean(kernel, mask):
 
 def apply(filter, gray_img, mask=3):
 
-    """
-        :param gray_img: gray image
-        :param mask: mask size
-        :return: image with median filter
-    """
-
     assert mask % 2 != 0, "Please provide odd number kernel size"
 
     new_img = np.zeros_like(gray_img)
 
-    # add padding
-    # handle edge convolution by mirroring (replicating pixels inside image as border)
+    # add padding, handle edge convolution by mirroring (replicating pixels inside image as border)
 
     bd = int(mask / 2)
 
@@ -73,7 +66,7 @@ def apply(filter, gray_img, mask=3):
 
 if __name__ == "__main__":
 
-    # read original image and turn image in gray scale value
+    # read original image and turn image in grayscale value
     img = cv2.imread("test.jpg")
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
