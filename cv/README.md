@@ -2,4 +2,5 @@
 
 - Linear Algebra and MATLAB basics for Computer Vision - ```Linear Algebra.ipynb```
 - Filters implementation (mean, median, gaussian) - ```filters.py```
+- Histogram Equalization - ```Histogram Equalization.ipynb```
 - Interpolation (nearest-neighbors) - ```interpolation.py```
