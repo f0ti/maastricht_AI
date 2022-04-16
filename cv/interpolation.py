@@ -1,6 +1,4 @@
-from xxlimited import new
 import numpy as np
-from matplotlib.pyplot import imshow
 import cv2
 
 def resize(gray_img, *target):
