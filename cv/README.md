@@ -4,3 +4,4 @@
 - Filters implementation (mean, median, gaussian) - ```filters.py```
 - Histogram Equalization - ```Histogram Equalization.ipynb```
 - Interpolation (nearest-neighbors) - ```interpolation.py```
+- Contract Stretching and Clipping - ```Contrast Stretching and Clipping.ipynb```
