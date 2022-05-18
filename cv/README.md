@@ -5,3 +5,4 @@
 - Histogram Equalization - ```Histogram Equalization.ipynb```
 - Interpolation (nearest-neighbors) - ```interpolation.py```
 - Contract Stretching and Clipping - ```Contrast Stretching and Clipping.ipynb```
+- Image Stitching - ```assignment_1/```
