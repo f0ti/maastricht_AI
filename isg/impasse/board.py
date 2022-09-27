@@ -45,8 +45,6 @@ class Board:
 
     return piece
 
-  def get_possible_moves(self)
-
   def render_piece_map(self):
     piece_map = np.chararray(32)
     for p in self.pieces:
