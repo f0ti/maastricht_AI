@@ -23,6 +23,15 @@ SQUARES = [
 ] = range(64)
 '''
 
+Color = bool
+COLORS = [WHITE, BLACK] = [True, False]
+COLOR_NAMES = ["black", "white"]
+
+PieceType = int
+PIECE_TYPES = [SINGLE, DOUBLE] = range(1, 3)
+PIECE_SYMBOLS = [None, "s", "d"]
+PIECE_NAMES = [None, "single", "double"]
+
 FILE_NAMES = ["a", "b", "c", "d", "e", "f", "g", "h"]
 RANK_NAMES = ["1", "2", "3", "4", "5", "6", "7", "8"]
 
@@ -40,6 +49,60 @@ SQUARES = [
 ] = range(32)
 
 SQUARE_NAMES = [f + r for r in RANK_NAMES for f in FILE_NAMES]
+
+BB_SQUARES = [
+  BB_A1, BB_C1, BB_E1, BB_G1,
+  BB_B2, BB_D2, BB_F2, BB_H2,
+  BB_A3, BB_C3, BB_E3, BB_G3,
+  BB_B4, BB_D4, BB_F4, BB_H4,
+  BB_A5, BB_C5, BB_E5, BB_G5,
+  BB_B6, BB_D6, BB_F6, BB_H6,
+  BB_A7, BB_C7, BB_E7, BB_G7,
+  BB_B8, BB_D8, BB_F8, BB_H8,
+] = [1 << sq for sq in SQUARES]
+
+SQUARES_180 = [square_mirror(sq) for sq in SQUARES]
+
+Bitboard = int
+BB_CLEAN = 0
+BB_ALL = 0xffff_ffff_ffff_ffff
+
+BB_RANKS = [
+  BB_RANK_1,
+  BB_RANK_2,
+  BB_RANK_3,
+  BB_RANK_4,
+  BB_RANK_5,
+  BB_RANK_6,
+  BB_RANK_7,
+  BB_RANK_8,
+] = [0xf << (4 * i) for i in range(8)]
+
+BB_FILES = [
+  BB_FILE_A,
+  BB_FILE_B,
+  BB_FILE_C,
+  BB_FILE_D,
+  BB_FILE_E,
+  BB_FILE_F,
+  BB_FILE_G,
+  BB_FILE_H,
+] = [0x0101_0101 << i for i in range(8)]
+
+BB_BACKRANKS = BB_RANK_1 | BB_RANK_8
+
+BB_BLACK = BB_D8 | BB_H8 | BB_A7 | BB_E7 | BB_B2 | BB_F2 | BB_C1 | BB_G1
+BB_WHITE = BB_B8 | BB_F8 | BB_C7 | BB_G7 | BB_D2 | BB_H2 | BB_A1 | BB_E1 
+
+BB_SINGLES = BB_D8 | BB_H8 | BB_A7 | BB_E7 | BB_D2 | BB_H2 | BB_A1 | BB_E1
+BB_DOUBLES = BB_B8 | BB_F8 | BB_C7 | BB_G7 | BB_B2 | BB_F2 | BB_C1 | BB_G1
+
+BB_EMPTY = np.uint32(~(BB_WHITE | BB_BLACK))
+BB_OCCUPIED = BB_RANK_1 | BB_RANK_2 | BB_RANK_7 | BB_RANK_8
+
+BB_OCCUPIED_CO = [BB_EMPTY, BB_EMPTY]
+BB_OCCUPIED_CO[WHITE] = BB_RANK_1 | BB_RANK_2
+BB_OCCUPIED_CO[BLACK] = BB_RANK_7 | BB_RANK_8
 
 def parse_square(name: str) -> Square:
   """
@@ -66,40 +129,71 @@ def square_rank(square: Square) -> int:
   """Gets the rank index of the square where ``0`` is the first rank."""
   return square >> 3
 
-Bitboard = int
-BB_EMPTY = 0
-BB_ALL = 0xffff_ffff_ffff_ffff
+def square_mirror(square: Square) -> Square:
+  """Mirrors the square vertically."""
+  return square ^ 0x1c
 
-BB_RANKS = [
-  BB_RANK_1,
-  BB_RANK_2,
-  BB_RANK_3,
-  BB_RANK_4,
-  BB_RANK_5,
-  BB_RANK_6,
-  BB_RANK_7,
-  BB_RANK_8,
-] = [0xf << (4 * i) for i in range(8)]
+def print_board():
+  builder = []
+  for square in SQUARES_180:
+    piece = piece_at(square)
+    if piece:
+      builder.append(piece.symbol())
+    else:
+      builder.append(".")
 
-BB_BACKRANKS = BB_RANK_1 | BB_RANK_8
+    if BB_SQUARES[square] & BB_FILE_H:
+      if square != G1:
+        builder.append("\n")
+    else:
+      builder.append(" ")
 
-# BB_BLACK = 01011010000000000000000010100101
-BB_BLACK = 1509949605
+  return "".join(builder)
 
-# BB_WHITE = 10100101000000000000000001011010
-BB_WHITE = 2768240730
+def piece_at(square):
+  """Gets the :class:`piece <chess.Piece>` at the given square."""
+  piece_type = piece_type_at(square)
+  if piece_type:
+    mask = BB_SQUARES[square]
+    color = bool(BB_OCCUPIED_CO[WHITE] & mask)
+    return Piece(piece_type, color)
+  else:
+    return None
 
-# BB_SINGLES = 01011010000000000000000001011010
-BB_SINGLES = 1509949530
+def piece_type_at(square):
+  mask = BB_SQUARES[square]
 
-# BB_DOUBLES = 10100101000000000000000010100101
-BB_DOUBLES = 2768240805
+  if not (BB_OCCUPIED & mask):
+    return None
 
-BB_OCCUPIED = BB_RANK_1 | BB_RANK_2 | BB_RANK_7 | BB_RANK_8
+  elif BB_SINGLES & mask:
+    return SINGLE
+
+  elif BB_DOUBLES & mask:
+    return DOUBLE
 
 
+START_POS_WHITE = {
+  1: [28, 30, 25, 27],
+  2: [0, 2, 5, 7]
+}
+
+START_POS_BLACK = {
+  1: [1, 3, 4, 6],
+  2: [24, 26, 29, 31]
+}
+
+
+def scan_reversed(bb):
+  while bb:
+    r = bb.bit_length() - 1
+    print(f"Bitboard: {bin(bb)}")
+    print(f"Mask    : {bin(BB_SQUARES[r])}")
+    yield r
+    bb ^= BB_SQUARES[r]
+
+      
 class Board:
-  
   def __init__(self) -> None:
     self.player_turn = True
     self.width = 4
