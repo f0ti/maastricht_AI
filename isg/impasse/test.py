@@ -1,5 +1,5 @@
+import time
 from typing import List
-import numpy as np
 from piece import Piece
 
 Color = bool
@@ -111,42 +111,129 @@ BB_OCCUPIED_CO[WHITE] = BB_WHITE
 BB_OCCUPIED_CO[BLACK] = BB_BLACK
 
 # changes
-BB_OCCUPIED_CO[WHITE] |= BB_A5
-BB_SINGLES |= BB_A5
+# BB_OCCUPIED_CO[WHITE] |= BB_A5
+# BB_SINGLES |= BB_A5
 
-BB_OCCUPIED_CO[WHITE] |= BB_G5
-BB_SINGLES |= BB_G5
+# BB_OCCUPIED_CO[WHITE] |= BB_G5
+# BB_SINGLES |= BB_G5
 
 BB_OCCUPIED = BB_OCCUPIED_CO[WHITE] | BB_OCCUPIED_CO[BLACK]
-print(BB_OCCUPIED)
 
-def get_single_moves(square: int) -> List:
+def get_forward_moves(square: int) -> List:
   attacks = 0
 
   tr, tf = square // 8, square % 8
-  print(f"Square: {SQUARE_NAMES[square]}")
+  # print(f"Square: {SQUARE_NAMES[square]}")
 
   # up-right
   for r, f in zip(range(tr+1, 8), range(tf+1, 8)):
     square = (r*8 + f)
-    print(f"Checking square: {SQUARE_NAMES[square]}")
+    # print(f"Checking square: {SQUARE_NAMES[square]}")
     if (1 << square) & BB_OCCUPIED:
-      print("Last check reached edge")
+      # print("Last check reached edge")
       break
     attacks |= (1 << square)
   
   # up-left
   for r, f in zip(range(tr+1, 8), range(tf-1, -1, -1)):
     square = (r*8 + f)
-    print(f"Checking square: {SQUARE_NAMES[square]}")
+    # print(f"Checking square: {SQUARE_NAMES[square]}")
 
     if (1 << square) & BB_OCCUPIED:
-      print("Last check reached edge")
+      # print("Last check reached edge")
       break
 
     attacks |= (1 << square)
 
   return attacks
+
+
+def shift_up_left(b: Bitboard) -> Bitboard:
+    return (b << 7) & ~BB_FILE_H & BB_ALL
+
+
+def shift_up_right(b: Bitboard) -> Bitboard:
+    return (b << 9) & ~BB_FILE_A & BB_ALL
+
+
+def shift_down_left(b: Bitboard) -> Bitboard:
+    return (b >> 9) & ~BB_FILE_H
+
+
+def shift_down_right(b: Bitboard) -> Bitboard:
+    return (b >> 7) & ~BB_FILE_A
+
+
+def get_backward_moves_shifting(square: int) -> List:
+  attacks = 0
+
+  while 1:
+    square = square >> 7 & ~BB_FILE_A
+    attacks |= square
+
+    if not square or square & BB_OCCUPIED:
+      break
+
+    print(BB_SQUARES.index(square))
+    
+  while 1:
+    square = square >> 9 & ~BB_FILE_H
+    attacks |= square
+
+    if not square or square & BB_OCCUPIED:
+      break
+
+    print(BB_SQUARES.index(square))
+    
+  return attacks
+
+# def _sliding_attacks(square: Square, occupied: Bitboard, deltas: Iterable[int]) -> Bitboard:
+#   attacks = BB_EMPTY
+
+#   for delta in deltas:
+#     sq = square
+
+#     while True:
+#       sq += delta
+#       if not (0 <= sq < 64) or square_distance(sq, sq - delta) > 2:
+#           break
+
+#       attacks |= BB_SQUARES[sq]
+
+#       if occupied & BB_SQUARES[sq]:
+#           break
+
+#     return attacks
+
+
+def get_backward_moves(square: int) -> List:
+  attacks = 0
+
+  tr, tf = square // 8, square % 8
+  # print(f"Square: {SQUARE_NAMES[square]}")
+
+  # down-right
+  for r, f in zip(range(tr-1, -1, -1), range(tf+1, 8)):
+    square = (r*8 + f)
+    # print(f"Checking square: {SQUARE_NAMES[square]}")
+    if (1 << square) & BB_OCCUPIED:
+      # print("Last check reached edge")
+      break
+    attacks |= (1 << square)
+  
+  # down-left
+  for r, f in zip(range(tr-1, -1, -1), range(tf-1, -1, -1)):
+    square = (r*8 + f)
+    # print(f"Checking square: {SQUARE_NAMES[square]}")
+
+    if (1 << square) & BB_OCCUPIED:
+      # print("Last check reached edge")
+      break
+
+    attacks |= (1 << square)
+
+  return attacks
+
 
 def print_board():
   builder = []
@@ -167,6 +254,7 @@ def print_board():
 
   return "".join(builder)
 
+
 def piece_at(square):
   """Gets the :class:`piece <chess.Piece>` at the given square."""
   piece_type = piece_type_at(square)
@@ -178,6 +266,7 @@ def piece_at(square):
     return piece
   else:
     return None
+
 
 def piece_type_at(square):
   mask = BB_SQUARES[square]
@@ -191,6 +280,22 @@ def piece_type_at(square):
   elif BB_DOUBLES & mask:
     return DOUBLE
 
-print(print_board())
-moves = get_moves(D2)
-print(moves)
+def get_singles():
+  return BB_SINGLES & BB_WHITE & SQUARES, BB_SINGLES & BB_BLACK & SQUARES
+
+def get_doubles():
+  return BB_SINGLES & BB_WHITE, BB_SINGLES & BB_BLACK
+
+start = time.monotonic()
+
+# moves_back = {}
+# moves_singles = {}
+# for p in SQUARES:
+#   moves_back[p] = get_forward_moves(p)
+#   moves_singles[p] = get_backward_moves(p)
+
+print(get_backward_moves_shifting(BB_E7))
+# print(get_backward_moves(E7))
+
+end = time.monotonic()
+print(f"Time elapsed during the process: {(end - start)} ms")
