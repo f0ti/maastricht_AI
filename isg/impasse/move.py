@@ -8,7 +8,6 @@ class Move():
     self.to_square = to_square
     self.crown = crown
 
-
   def uci(self) -> str:
     if self:
       return SQUARE_NAMES[self.from_square] + SQUARE_NAMES[self.to_square]
@@ -17,10 +16,8 @@ class Move():
     else:
       return "0000"
 
-
   def __repr__(self) -> str:
     return f"<Move>{self.uci()}"
-
 
   def __str__(self) -> str:
     return self.uci()
