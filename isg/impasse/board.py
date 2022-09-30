@@ -1,5 +1,6 @@
 # ------ color ------
 
+from typing import Generator, Iterator, List
 from piece import Piece
 
 
@@ -187,6 +188,43 @@ class Board():
           builder.append(" ")
 
     return "".join(builder)
+
+  def get_backward_moves(self, square: Square) -> Generator:
+    tr, tf = square // 8, square % 8
+
+    # down-right
+    for r, f in zip(range(tr-1, -1, -1), range(tf+1, 8)):
+      square = (r*8 + f)
+      if (1 << square) & self.occupied:
+        break
+
+      yield square
+
+    # down-left
+    for r, f in zip(range(tr-1, -1, -1), range(tf-1, -1, -1)):
+      square = (r*8 + f)
+      if (1 << square) & self.occupied:
+        break
+      yield square
+
+  def get_forward_moves(self, square: Square) -> Generator:
+    tr, tf = square // 8, square % 8
+
+    # up-right
+    for r, f in zip(range(tr+1, 8), range(tf+1, 8)):
+      square = (r*8 + f)
+      if (1 << square) & self.occupied:
+        break
+      
+      yield square
+    
+    # up-left
+    for r, f in zip(range(tr+1, 8), range(tf-1, -1, -1)):
+      square = (r*8 + f)
+      if (1 << square) & self.occupied:
+        break
+      
+      yield square
 
   def set_board_fen(self, board_fen: str) -> None:
     pass
