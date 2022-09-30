@@ -299,3 +299,12 @@ print(get_backward_moves_shifting(BB_E7))
 
 end = time.monotonic()
 print(f"Time elapsed during the process: {(end - start)} ms")
+
+BB_OCCUPIED ^= BB_SQUARES[11]
+
+BB_OCCUPIED_CO[WHITE] ^= BB_SQUARES[11]
+BB_OCCUPIED_CO[BLACK] ^= BB_SQUARES[11]
+
+print(BB_OCCUPIED)
+print(BB_OCCUPIED_CO[WHITE])
+print(BB_OCCUPIED_CO[BLACK])
