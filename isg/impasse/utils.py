@@ -9,3 +9,5 @@ def render_mask(bitboard):
 def print_legal_moves(board):
   for move in board.legal_moves:
     print(move)
+
+render_mask(9223372122754121728)

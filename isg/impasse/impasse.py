@@ -1,9 +1,10 @@
 # ------ color ------
 
 import time
+from chess import PIECE_SYMBOLS
 import numpy as np
+from random import choice
 from typing import Generator, Iterator, List, Optional
-
 from utils import print_legal_moves, render_mask
 
 
@@ -13,7 +14,8 @@ COLOR_NAMES = ["black", "white"]
 
 PieceType = int
 PIECE_TYPES = [SINGLE, DOUBLE] = [1, 2]
-PIECE_SYMBOLS = [None, "s", "d"]
+# PIECE_SYMBOLS = [None, "s", "d"]
+PIECE_SYMBOLS = (("None", "⛀", "⛁"), ("None", "⛂", "⛃"))
 PIECE_NAMES = [None, "single", "double"]
 
 FILE_NAMES = ["a", "b", "c", "d", "e", "f", "g", "h"]
@@ -130,8 +132,7 @@ class Piece:
     self.removed = False
 
   def symbol(self) -> str:
-    symbol = PIECE_SYMBOLS[self.piece_type]
-    return symbol.upper() if self.color else symbol
+    return PIECE_SYMBOLS[self.color][self.piece_type]
 
   def __repr__(self) -> str:
     return f"Piece: {self.symbol()}"
@@ -141,17 +142,32 @@ class Piece:
 
 
 class Move:
-  def __init__(self, from_square: Square, to_square: Square, crown: Optional[Square] = None, impasse: Optional[PieceType] = None) -> None:
-    self.from_square = from_square
-    self.to_square = to_square
-    self.crown = crown
-    self.impasse = impasse
+  def __init__(
+    self,
+    from_square: Square,
+    to_square: Square,
+    crown: Optional[Square] = None,
+    impasse: Optional[PieceType] = None,
+    bear_off: bool = False,
+    delayed_crown: Optional[Square] = None
+    ) -> None:
+
+      self.from_square = from_square
+      self.to_square = to_square
+      self.crown = crown
+      self.delayed_crown = delayed_crown
+      self.bear_off = bear_off
+      self.impasse = impasse
 
   def uci(self) -> str:
     if self.impasse is not None:
       return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
     elif self.crown is not None:
       return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}[{SQUARE_NAMES[self.crown]}]"
+    elif self.delayed_crown is not None:
+      return f"[{SQUARE_NAMES[self.crown]}]{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+    elif self.bear_off:
+      return f"{SQUARE_NAMES[self.from_square]}x{SQUARE_NAMES[self.to_square]}"
     else:
       return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
 
@@ -196,7 +212,10 @@ class Board:
 
     return bb & self.occupied_co[color]
   
-  def piece_type_at(self, square):
+  def piece_type_at(self, square: Square):
+    if square is None:
+      return
+
     mask = BB_SQUARES[square]
 
     if not (self.occupied & mask):
@@ -209,6 +228,9 @@ class Board:
       return DOUBLE
 
   def remove_piece_at(self, square: Square) -> None:
+    if square is None:
+      return
+    
     piece_type = self.piece_type_at(square)
     mask = BB_SQUARES[square]
 
@@ -235,8 +257,10 @@ class Board:
     elif piece_type == DOUBLE:
       self.doubles |= mask
     else:
+      print("O KARRR")
       return
 
+    print(f"Piece {square} set")
     self.occupied ^= mask
     self.occupied_co[color] ^= mask
 
@@ -293,6 +317,8 @@ class Board:
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
         for to_square in self.get_forward_moves(from_square):
+          if self.delayed_crown:
+            pass
           if self.upcoming_crown(to_square):
             if self.crown_available(from_square, to_square):
               available_singles = self.crown_available(from_square, to_square)
@@ -304,7 +330,10 @@ class Board:
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_backward_moves(from_square):
-          yield Move(from_square, to_square)
+          if self.upcoming_bearoff(to_square):
+            yield Move(from_square, to_square, bear_off=True)
+          else:
+            yield Move(from_square, to_square)
 
     else:
       single_moves = self.occupied_co[self.turn] & self.singles
@@ -321,7 +350,10 @@ class Board:
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_forward_moves(from_square):
-          yield Move(from_square, to_square)
+          if self.upcoming_bearoff(to_square):
+            yield Move(from_square, to_square, bear_off=True)
+          else:
+            yield Move(from_square, to_square)
 
   def push(self, move: Move) -> None:
     
@@ -329,10 +361,15 @@ class Board:
 
     moving_piece = self.piece_at(move.from_square)
     self.remove_piece_at(move.from_square)
-    self.set_piece_at(move.to_square, moving_piece.piece_type, moving_piece.color)
-    
-    if move.crown:
-      pass
+    self.remove_piece_at(move.crown)
+
+    print(move.crown)
+    if move.crown is not None:
+      self.set_piece_at(move.to_square, DOUBLE, moving_piece.color)
+    elif move.bear_off:
+      self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
+    else:
+      self.set_piece_at(move.to_square, moving_piece.piece_type, moving_piece.color)
 
     self.turn = not self.turn
 
@@ -342,11 +379,18 @@ class Board:
     else:
       return BB_SQUARES[to_square] & BB_RANK_1
 
+  def upcoming_bearoff(self, to_square: Square):
+    if self.turn:
+      return BB_SQUARES[to_square] & BB_RANK_1
+    else:
+      return BB_SQUARES[to_square] & BB_RANK_8
+
   def crown_available(self, from_square: Square, to_square: Square):
     available_singles = self.occupied_co[self.turn] & self.singles ^ BB_SQUARES[from_square]
-    if available_singles:
+    if available_singles is not None:
       return available_singles
     else:
+      print("No available singles for crown")
       self.delayed_crown[self.turn] = True
       return 0
 
@@ -398,20 +442,28 @@ class Game:
   def __init__(self) -> None:
     self.board = Board()
 
+  def selfplay(self, iterations: int):
+    for i in range(iterations):
+      print(f"Move {i}")
+      print(COLOR_NAMES[game.board.turn])
+      moves = list(game.board.legal_moves)
+      if len(moves):
+        move = choice(moves)
+        print(move)
+        game.board.push(move)
+      else:
+        print(f"No more legal moves for {COLOR_NAMES[game.board.turn]}")
+        game.board.print_board()
+        break
+      
+      game.board.print_board()
+      print("*" * 16)
+
 game = Game()
 
-game.board.print_board()
-game.board.push(Move(D2, A5))
-game.board.push(Move(E7, H4))
-game.board.push(Move(E1, B4))
-game.board.push(Move(F2, C5))
-game.board.push(Move(H2, D6))
-# game.board.push(Move(H4, E1))
-game.board.print_board()
+game.selfplay(100)
 
-print(len(list(game.board.legal_moves)))
-
-print_legal_moves(game.board)
+# game.board.print_board()
 
 start = time.monotonic_ns()
 
