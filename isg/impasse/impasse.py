@@ -1,7 +1,10 @@
 # ------ color ------
 
 import time
+import numpy as np
 from typing import Generator, Iterator, List, Optional
+
+from utils import print_legal_moves, render_mask
 
 
 Color = bool
@@ -138,18 +141,19 @@ class Piece:
 
 
 class Move:
-  def __init__(self, from_square: Square, to_square: Square, crown: Optional[PieceType] = None) -> None:
+  def __init__(self, from_square: Square, to_square: Square, crown: Optional[Square] = None, impasse: Optional[PieceType] = None) -> None:
     self.from_square = from_square
     self.to_square = to_square
     self.crown = crown
+    self.impasse = impasse
 
   def uci(self) -> str:
-    if self:
-      return SQUARE_NAMES[self.from_square] + SQUARE_NAMES[self.to_square]
-    elif self.crown:
-      return SQUARE_NAMES[self.from_square] + SQUARE_NAMES[self.to_square] + PIECE_SYMBOLS(self.promotion)
+    if self.impasse is not None:
+      return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+    elif self.crown is not None:
+      return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}[{SQUARE_NAMES[self.crown]}]"
     else:
-      return "0000"
+      return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
 
   def __repr__(self) -> str:
     return f"<Move>{self.uci()}"
@@ -162,6 +166,7 @@ class Board:
   def __init__(self, board_fen: str = None, turn: Color = 1) -> None:
     self.occupied_co = [BB_EMPTY, BB_EMPTY]
     self.turn = turn
+    self.delayed_crown = [False, False]
 
     if board_fen:
       self.set_board_fen(board_fen)
@@ -236,32 +241,15 @@ class Board:
     self.occupied_co[color] ^= mask
 
   def piece_at(self, square):
-    """Gets the Piece at the given square."""
     piece_type = self.piece_type_at(square)
     if piece_type:
       mask = BB_SQUARES[square]
       color = bool(self.occupied_co[WHITE] & mask)
+      
       return Piece(piece_type, color)
+    
     else:
       return None
-
-  def print_board(self):
-    builder = []
-
-    for square in SQUARES_180:
-      piece = self.piece_at(square)
-      if piece:
-        builder.append(piece.symbol())
-      else:
-        builder.append(".")
-
-      if BB_SQUARES[square] & BB_FILE_H:
-        if square != H1:
-          builder.append("\n")
-      else:
-          builder.append(" ")
-
-    return "".join(builder)
 
   def get_backward_moves(self, square: Square) -> Generator:
     tr, tf = square // 8, square % 8
@@ -300,16 +288,18 @@ class Board:
       
       yield square
 
-  def transpose_available():
-    pass
-
   def generate_legal_moves(self):
-
     if self.turn:
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
         for to_square in self.get_forward_moves(from_square):
-          yield Move(from_square, to_square)
+          if self.upcoming_crown(to_square):
+            if self.crown_available(from_square, to_square):
+              available_singles = self.crown_available(from_square, to_square)
+              for avs in scan_reversed(available_singles):
+                yield Move(from_square, to_square, crown=avs)
+          else:
+            yield Move(from_square, to_square)
 
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
@@ -320,18 +310,88 @@ class Board:
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
         for to_square in self.get_backward_moves(from_square):
-          yield Move(from_square, to_square)
+          if self.upcoming_crown(to_square):
+            if self.crown_available(from_square, to_square):
+              available_singles = self.crown_available(from_square, to_square)
+              for avs in scan_reversed(available_singles):
+                yield Move(from_square, to_square, crown=avs)
+          else:
+            yield Move(from_square, to_square)
 
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_forward_moves(from_square):
           yield Move(from_square, to_square)
-  
-  def is_legal(self, move: Move):
-    return move in set(self.legal_moves)
+
+  def push(self, move: Move) -> None:
+    
+    assert self.is_legal(move), "Illegal move"
+
+    moving_piece = self.piece_at(move.from_square)
+    self.remove_piece_at(move.from_square)
+    self.set_piece_at(move.to_square, moving_piece.piece_type, moving_piece.color)
+    
+    if move.crown:
+      pass
+
+    self.turn = not self.turn
+
+  def upcoming_crown(self, to_square: Square):
+    if self.turn:
+      return BB_SQUARES[to_square] & BB_RANK_8
+    else:
+      return BB_SQUARES[to_square] & BB_RANK_1
+
+  def crown_available(self, from_square: Square, to_square: Square):
+    available_singles = self.occupied_co[self.turn] & self.singles ^ BB_SQUARES[from_square]
+    if available_singles:
+      return available_singles
+    else:
+      self.delayed_crown[self.turn] = True
+      return 0
+
+  def bear_off_available(self):
+    if self.turn:
+      return self.occupied_co[self.turn] & self.singles & BB_RANK_8
+    else:
+      return self.occupied_co[self.turn] & self.singles & BB_RANK_1
+
+  def transpose_available():
+    pass
+
+  def is_legal(self, move: Move) -> bool:
+    if not move:
+      return False
+    
+    from_mask = BB_SQUARES[move.from_square]
+    to_mask = BB_SQUARES[move.to_square]
+
+    # check turn
+    if not self.occupied_co[self.turn] & from_mask:
+      return False
+
+    return True
 
   def set_board_fen(self, board_fen: str) -> None:
     pass
+
+  def print_board(self):
+    builder = []
+
+    for square in SQUARES_180:
+      piece = self.piece_at(square)
+      if piece:
+        builder.append(piece.symbol())
+      else:
+        builder.append(".")
+
+      if BB_SQUARES[square] & BB_FILE_H:
+        if square != H1:
+          builder.append("\n")
+      else:
+          builder.append(" ")
+
+    print("".join(builder) + "\n")
 
 
 class Game:
@@ -340,12 +400,20 @@ class Game:
 
 game = Game()
 
-test_move = Move(D2, E3)
+game.board.print_board()
+game.board.push(Move(D2, A5))
+game.board.push(Move(E7, H4))
+game.board.push(Move(E1, B4))
+game.board.push(Move(F2, C5))
+game.board.push(Move(H2, D6))
+# game.board.push(Move(H4, E1))
+game.board.print_board()
+
+print(len(list(game.board.legal_moves)))
+
+print_legal_moves(game.board)
 
 start = time.monotonic_ns()
-
-game.board.legal_moves
-# print(game.board.is_legal(test_move))
 
 end = time.monotonic_ns()
 print(f"Time elapsed during the process: {(end - start)} ns")

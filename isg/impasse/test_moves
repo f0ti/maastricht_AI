@@ -1,0 +1,24 @@
+# CASE 1: BEAR-OFF
+
+game.board.push(Move(D2, H6))
+game.board.push(Move(E7, D6))
+game.board.push(Move(E1, A5))
+game.board.push(Move(D6, C5))
+game.board.push(Move(G7, C3))
+game.board.push(Move(C5, B4))
+game.board.push(Move(C3, E1))
+
+# CASE 2: CROWN WHITE PIECE
+game.board.push(Move(D2, A5))
+game.board.push(Move(E7, H4))
+game.board.push(Move(C7, G3))
+game.board.push(Move(D8, G5))
+game.board.push(Move(A5, D8))
+
+# CASE 3: CROWN BLACK PIECE
+game.board.push(Move(D2, A5))
+game.board.push(Move(E7, H4))
+game.board.push(Move(E1, B4))
+game.board.push(Move(F2, C5))
+game.board.push(Move(H2, D6))
+game.board.push(Move(H4, E1))
