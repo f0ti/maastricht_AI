@@ -1,9 +1,7 @@
 # ------ color ------
 
-from typing import Generator, Iterator, List
-
-from chess import Move
-from piece import Piece
+import time
+from typing import Generator, Iterator, List, Optional
 
 
 Color = bool
@@ -119,6 +117,45 @@ def scan_reversed(bb: Bitboard) -> Iterator[Square]:
     r = bb.bit_length() - 1
     yield r
     bb ^= BB_SQUARES[r]
+
+
+class Piece:
+
+  def __init__(self, piece_type=1, color=True) -> None:
+    self.color = color
+    self.piece_type = piece_type
+    self.removed = False
+
+  def symbol(self) -> str:
+    symbol = PIECE_SYMBOLS[self.piece_type]
+    return symbol.upper() if self.color else symbol
+
+  def __repr__(self) -> str:
+    return f"Piece: {self.symbol()}"
+
+  def __str__(self) -> str:
+    return f"{self.symbol()}"
+
+
+class Move:
+  def __init__(self, from_square: Square, to_square: Square, crown: Optional[PieceType] = None) -> None:
+    self.from_square = from_square
+    self.to_square = to_square
+    self.crown = crown
+
+  def uci(self) -> str:
+    if self:
+      return SQUARE_NAMES[self.from_square] + SQUARE_NAMES[self.to_square]
+    elif self.crown:
+      return SQUARE_NAMES[self.from_square] + SQUARE_NAMES[self.to_square] + PIECE_SYMBOLS(self.promotion)
+    else:
+      return "0000"
+
+  def __repr__(self) -> str:
+    return f"<Move>{self.uci()}"
+
+  def __str__(self) -> str:
+    return self.uci()
 
 
 class Board:
@@ -290,5 +327,25 @@ class Board:
         for to_square in self.get_forward_moves(from_square):
           yield Move(from_square, to_square)
   
+  def is_legal(self, move: Move):
+    return move in set(self.legal_moves)
+
   def set_board_fen(self, board_fen: str) -> None:
     pass
+
+
+class Game:
+  def __init__(self) -> None:
+    self.board = Board()
+
+game = Game()
+
+test_move = Move(D2, E3)
+
+start = time.monotonic_ns()
+
+game.board.legal_moves
+# print(game.board.is_legal(test_move))
+
+end = time.monotonic_ns()
+print(f"Time elapsed during the process: {(end - start)} ns")
