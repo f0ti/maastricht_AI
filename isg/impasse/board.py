@@ -1,6 +1,8 @@
 # ------ color ------
 
 from typing import Generator, Iterator, List
+
+from chess import Move
 from piece import Piece
 
 
@@ -103,15 +105,35 @@ BB_RANKS = [
 
 BB_BACKRANKS = BB_RANK_1 | BB_RANK_8
 
+def scan_forward(bb: Bitboard) -> Iterator[Square]:
+  while bb:
+    r = bb & -bb
+    yield r.bit_length() - 1
+    bb ^= r
 
-class Board():
-  def __init__(self, board_fen: str = None) -> None:
+def msb(bb: Bitboard) -> int:
+  return bb.bit_length() - 1
+
+def scan_reversed(bb: Bitboard) -> Iterator[Square]:
+  while bb:
+    r = bb.bit_length() - 1
+    yield r
+    bb ^= BB_SQUARES[r]
+
+
+class Board:
+  def __init__(self, board_fen: str = None, turn: Color = 1) -> None:
     self.occupied_co = [BB_EMPTY, BB_EMPTY]
+    self.turn = turn
 
     if board_fen:
       self.set_board_fen(board_fen)
     else:
       self.reset_board()
+
+  @property
+  def legal_moves(self) -> Generator:
+    return self.generate_legal_moves()
 
   def reset_board(self) -> None:
     self.singles = BB_D8 | BB_H8 | BB_A7 | BB_E7 | BB_D2 | BB_H2 | BB_A1 | BB_E1
@@ -160,6 +182,21 @@ class Board():
     # XOR adds a piece if it is not there
     self.occupied_co[WHITE] &= ~mask
     self.occupied_co[BLACK] &= ~mask
+
+  def set_piece_at(self, square: Square, piece_type: PieceType, color: Color) -> None:
+    self.remove_piece_at(square)
+
+    mask = BB_SQUARES[square]
+
+    if piece_type == SINGLE:
+      self.singles |= mask
+    elif piece_type == DOUBLE:
+      self.doubles |= mask
+    else:
+      return
+
+    self.occupied ^= mask
+    self.occupied_co[color] ^= mask
 
   def piece_at(self, square):
     """Gets the Piece at the given square."""
@@ -226,5 +263,32 @@ class Board():
       
       yield square
 
+  def transpose_available():
+    pass
+
+  def generate_legal_moves(self):
+
+    if self.turn:
+      single_moves = self.occupied_co[self.turn] & self.singles
+      for from_square in scan_reversed(single_moves):
+        for to_square in self.get_forward_moves(from_square):
+          yield Move(from_square, to_square)
+
+      double_moves = self.occupied_co[self.turn] & self.doubles
+      for from_square in scan_reversed(double_moves):
+        for to_square in self.get_backward_moves(from_square):
+          yield Move(from_square, to_square)
+
+    else:
+      single_moves = self.occupied_co[self.turn] & self.singles
+      for from_square in scan_reversed(single_moves):
+        for to_square in self.get_backward_moves(from_square):
+          yield Move(from_square, to_square)
+
+      double_moves = self.occupied_co[self.turn] & self.doubles
+      for from_square in scan_reversed(double_moves):
+        for to_square in self.get_forward_moves(from_square):
+          yield Move(from_square, to_square)
+  
   def set_board_fen(self, board_fen: str) -> None:
     pass

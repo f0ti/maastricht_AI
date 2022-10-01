@@ -2,7 +2,7 @@ from typing import Optional
 from chess import SQUARE_NAMES, PieceType, Square, piece_symbol
 
 
-class Move():
+class Move:
   def __init__(self, from_square: Square, to_square: Square, crown: Optional[PieceType] = None) -> None:
     self.from_square = from_square
     self.to_square = to_square
