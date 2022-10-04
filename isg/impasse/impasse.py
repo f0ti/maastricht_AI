@@ -324,6 +324,7 @@ class Board:
       if self.delayed_crown[self.turn]:
         self.delayed_crown_squares[self.turn] = self.perform_delayed_crown(self)
         self.delayed_crown[self.turn] = False
+        self.delayed_crown_squares[self.turn] = None
       else:
         self.delayed_crown_squares[self.turn] = None
 
@@ -365,6 +366,7 @@ class Board:
       if self.delayed_crown[self.turn]:
         self.delayed_crown_squares[self.turn] = self.perform_delayed_crown()
         self.delayed_crown[self.turn] = False
+        self.delayed_crown_squares[self.turn] = None
       else:
         self.delayed_crown_squares[self.turn] = None
       
@@ -403,18 +405,15 @@ class Board:
 
     for square in scan_reversed(available_pieces):
       if self.piece_type_at(square) == SINGLE:
-        self.remove_piece_at(square)
         yield Move(square, square, impasse_remove=True)
       elif self.piece_type_at(square) == DOUBLE:
-        self.remove_piece_at(square)
-        self.set_piece_at(square, SINGLE, self.turn)
         if self.crown_available(square):
           if self.perform_crown(square, square):
             available_singles = self.perform_crown(square, square)
             for avs in scan_reversed(available_singles):
-              yield Move(square, square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
+              yield Move(square, square, crown=avs, impasse_remove=True, delayed_crown=self.delayed_crown_squares[self.turn])
         else:
-          yield Move(square, square, delayed_crown=self.delayed_crown_squares[self.turn])
+          yield Move(square, square, impasse_remove=True, delayed_crown=self.delayed_crown_squares[self.turn])
       else:
         yield
 
@@ -439,6 +438,9 @@ class Board:
       self.set_piece_at(move.to_square, DOUBLE, moving_piece.color)
     elif move.bear_off:
       self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
+    elif move.impasse_remove:
+      if moving_piece.piece_type == DOUBLE:
+        self.set_piece_at(move.from_square, SINGLE, moving_piece.color)  
     elif move.transpose:
       self.set_piece_at(move.from_square, DOUBLE, moving_piece.color)
       self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
@@ -492,7 +494,7 @@ class Board:
     self.remove_piece_at(self.delayed_crown_squares[self.turn])
     self.set_piece_at(self.delayed_crown_squares[self.turn], DOUBLE, self.turn)
 
-    return self.delayed_crown_squares[self.turn]
+    return crown_single
 
   def perform_crown(self, from_square: Square, to_square: Square):
     available_singles = self.occupied_co[self.turn] & self.singles ^ BB_SQUARES[from_square]
@@ -521,10 +523,6 @@ class Board:
     
     from_mask = BB_SQUARES[move.from_square]
     to_mask = BB_SQUARES[move.to_square]
-
-    # check turn
-    if not self.occupied_co[self.turn] & from_mask:
-      return False
 
     return True
 
@@ -559,12 +557,13 @@ class Game:
       print(f"{COLOR_NAMES[game.board.turn]} move {i}")
       moves = list(game.board.legal_moves)
       print(f"Legal moves {moves}")
-      if game.board.is_game_over():
-        break
       if len(moves):
         move = choice(moves)
         print(move)
         game.board.push(move)
+        if game.board.is_game_over():
+          game.board.print_board()
+          break
       else:
         print(f"No more legal moves for {COLOR_NAMES[game.board.turn]}")
         game.board.print_board()
@@ -579,7 +578,6 @@ game = Game()
 # game.board.print_board()
 
 start = time.monotonic_ns()
-game.selfplay(300)
-
+game.selfplay(500)
 end = time.monotonic_ns()
-print(f"Time elapsed during the process: {(end - start)/10**6} ns")
+print(f"Time elapsed during the process: {(end - start)/10**6} ms")
