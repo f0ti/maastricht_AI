@@ -1,16 +1,15 @@
-# ------ color ------
-
 import time
-from chess import PIECE_SYMBOLS
-import numpy as np
 from random import choice
 from typing import Generator, Iterator, List, Optional
 from utils import print_legal_moves, render_mask
 
+# ------ color ------
 
 Color = bool
 COLORS = [WHITE, BLACK] = [True, False]
 COLOR_NAMES = ["black", "white"]
+
+# ------ piece ------
 
 PieceType = int
 PIECE_TYPES = [SINGLE, DOUBLE] = [1, 2]
@@ -18,10 +17,10 @@ PIECE_TYPES = [SINGLE, DOUBLE] = [1, 2]
 PIECE_SYMBOLS = (("None", "⛀", "⛁"), ("None", "⛂", "⛃"))
 PIECE_NAMES = [None, "single", "double"]
 
+# ------ square ------
+
 FILE_NAMES = ["a", "b", "c", "d", "e", "f", "g", "h"]
 RANK_NAMES = ["1", "2", "3", "4", "5", "6", "7", "8"]
-
-# ------ square ------
 
 Square = int
 SQUARES = [
@@ -36,6 +35,24 @@ SQUARES = [
 ] = range(64)
 
 SQUARE_NAMES = [f + r for r in RANK_NAMES for f in FILE_NAMES]
+
+def parse_square(name: str) -> Square:
+  return SQUARE_NAMES.index(name)
+
+def square_name(square: Square) -> str:
+  return SQUARE_NAMES[square]
+
+def square(file_index: int, rank_index: int) -> Square:
+  return rank_index * 8 + file_index
+
+def square_file(square: Square) -> int:
+  return square & 7
+
+def square_rank(square: Square) -> int:
+  return square >> 3
+
+def square_mirror(square: Square) -> Square:
+  return square ^ 0x38
 
 # ------ bitboard ------
 
@@ -53,30 +70,6 @@ BB_SQUARES = [
   BB_A7, BB_B7, BB_C7, BB_D7, BB_E7, BB_F7, BB_G7, BB_H7,
   BB_A8, BB_B8, BB_C8, BB_D8, BB_E8, BB_F8, BB_G8, BB_H8,
 ] = [1 << sq for sq in SQUARES]
-
-def parse_square(name: str) -> Square:
-  """Gets the square index for the given square *name*"""
-  return SQUARE_NAMES.index(name)
-
-def square_name(square: Square) -> str:
-  """Gets the name of the square, like ``a3``."""
-  return SQUARE_NAMES[square]
-
-def square(file_index: int, rank_index: int) -> Square:
-  """Gets a square number by file and rank index."""
-  return rank_index * 8 + file_index
-
-def square_file(square: Square) -> int:
-  """Gets the file index of the square where ``0`` is the a-file."""
-  return square & 7
-
-def square_rank(square: Square) -> int:
-  """Gets the rank index of the square where ``0`` is the first rank."""
-  return square >> 3
-
-def square_mirror(square: Square) -> Square:
-  """Mirrors the square vertically."""
-  return square ^ 0x38
 
 SQUARES_180 = [square_mirror(sq) for sq in SQUARES]
 
@@ -105,8 +98,6 @@ BB_RANKS = [
   BB_RANK_7,
   BB_RANK_8,
 ] = [0xff << (8 * i) for i in range(8)]
-
-BB_BACKRANKS = BB_RANK_1 | BB_RANK_8
 
 def scan_forward(bb: Bitboard) -> Iterator[Square]:
   while bb:
@@ -148,29 +139,36 @@ class Move:
     to_square: Square,
     bear_off: bool = False,
     transpose: bool = False,
+    impasse_remove: bool = False,
     crown: Optional[Square] = None,
     impasse: Optional[PieceType] = None,
     delayed_crown: Optional[Square] = None
     ) -> None:
 
+      self.impasse_remove = impasse_remove
+      self.delayed_crown = delayed_crown
       self.from_square = from_square
       self.to_square = to_square
-      self.crown = crown
-      self.delayed_crown = delayed_crown
-      self.bear_off = bear_off
       self.transpose = transpose
+      self.bear_off = bear_off
       self.impasse = impasse
+      self.crown = crown
 
   def uci(self) -> str:
     uci = f""
+
+    if self.delayed_crown is not None:
+      uci += f"[{self.delayed_crown}]"
+
     if self.impasse is not None:
       uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
-    elif self.delayed_crown is not None:
-      uci = f"[{SQUARE_NAMES[self.crown]}]{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
     elif self.transpose:
       uci = f"{SQUARE_NAMES[self.from_square]}-><-{SQUARE_NAMES[self.to_square]}"
     else:
       uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+
+    if self.impasse_remove:
+      uci += f"[X][X]"
 
     if self.bear_off:
       uci += f"[X]"
@@ -192,6 +190,7 @@ class Board:
     self.occupied_co = [BB_EMPTY, BB_EMPTY]
     self.turn = turn
     self.delayed_crown = [False, False]
+    self.delayed_crown_squares = [None, None]
 
     if board_fen:
       self.set_board_fen(board_fen)
@@ -199,8 +198,8 @@ class Board:
       self.reset_board()
 
   @property
-  def legal_moves(self) -> Generator:
-    return self.generate_legal_moves()
+  def legal_moves(self) -> List:
+    return self.generate_moves()
 
   def reset_board(self) -> None:
     self.singles = BB_D8 | BB_H8 | BB_A7 | BB_E7 | BB_D2 | BB_H2 | BB_A1 | BB_E1
@@ -267,8 +266,7 @@ class Board:
       self.doubles |= mask
     else:
       return
-
-    print(f"Piece {square} set")
+    
     self.occupied ^= mask
     self.occupied_co[color] ^= mask
 
@@ -320,8 +318,16 @@ class Board:
       
       yield square
 
-  def generate_legal_moves(self):
+  def generate_basic_moves(self):
     if self.turn:
+      # perform delayed crown
+      if self.delayed_crown[self.turn]:
+        self.delayed_crown_squares[self.turn] = self.perform_delayed_crown(self)
+        self.delayed_crown[self.turn] = False
+      else:
+        self.delayed_crown_squares[self.turn] = None
+
+      # perform transpose and then crown if available
       if self.transpose_available():
         available_transposes = self.transpose_available()
         for from_square, to_square in available_transposes:
@@ -329,44 +335,49 @@ class Board:
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
-                yield Move(from_square, to_square, crown=avs)
+                yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
             yield Move(from_square, to_square, transpose=True)
 
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
         for to_square in self.get_forward_moves(from_square):
-          if self.delayed_crown:
-            pass
           if self.crown_available(to_square):
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
-                yield Move(from_square, to_square, crown=avs)
+                yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
           elif self.bearoff_available(to_square):
-            yield Move(from_square, to_square, bear_off=True)
+            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
-            yield Move(from_square, to_square)
+            yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_backward_moves(from_square):
           if self.bearoff_available(to_square):
-            yield Move(from_square, to_square, bear_off=True)
+            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
-            yield Move(from_square, to_square)
+            yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
     else:
+      # perform delayed crown (not tested)
+      if self.delayed_crown[self.turn]:
+        self.delayed_crown_squares[self.turn] = self.perform_delayed_crown()
+        self.delayed_crown[self.turn] = False
+      else:
+        self.delayed_crown_squares[self.turn] = None
+      
       if self.transpose_available():
         available_transposes = self.transpose_available()
         for from_square, to_square in available_transposes:
-          if self.crown_available(to_square):
+          if self.crown_available(to_square):  # not tested
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
-                yield Move(from_square, to_square, crown=avs)
+                yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
-            yield Move(from_square, to_square, transpose=True)
+            yield Move(from_square, to_square, transpose=True, delayed_crown=self.delayed_crown_squares[self.turn])
 
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
@@ -375,17 +386,46 @@ class Board:
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
-                yield Move(from_square, to_square, crown=avs)
+                yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
-            yield Move(from_square, to_square)
+            yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_forward_moves(from_square):
           if self.bearoff_available(to_square):
-            yield Move(from_square, to_square, bear_off=True)
+            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
-            yield Move(from_square, to_square)
+            yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
+
+  def generate_impasse_moves(self):
+    available_pieces = self.occupied_co[self.turn]  # pieces to remove
+
+    for square in scan_reversed(available_pieces):
+      if self.piece_type_at(square) == SINGLE:
+        self.remove_piece_at(square)
+        yield Move(square, square, impasse_remove=True)
+      elif self.piece_type_at(square) == DOUBLE:
+        self.remove_piece_at(square)
+        self.set_piece_at(square, SINGLE, self.turn)
+        if self.crown_available(square):
+          if self.perform_crown(square, square):
+            available_singles = self.perform_crown(square, square)
+            for avs in scan_reversed(available_singles):
+              yield Move(square, square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
+        else:
+          yield Move(square, square, delayed_crown=self.delayed_crown_squares[self.turn])
+      else:
+        yield
+
+  def generate_moves(self):
+
+    legal_moves = list(self.generate_basic_moves())
+    # generate legal impasse moves
+    if not len(legal_moves):
+      legal_moves = list(self.generate_impasse_moves())
+
+    return legal_moves
 
   def push(self, move: Move) -> None:
     
@@ -438,6 +478,22 @@ class Board:
 
     return available_transpose
 
+  def perform_delayed_crown(self):
+    if self.turn:
+      available_singles = self.occupied_co[self.turn] & self.singles ^ BB_RANK_8
+      self.delayed_crown_squares[self.turn] = self.occupied_co[self.turn] & self.singles & BB_RANK_8
+    else:
+      available_singles = self.occupied_co[self.turn] & self.singles ^ BB_RANK_1
+      self.delayed_crown_squares[self.turn] = self.occupied_co[self.turn] & self.singles & BB_RANK_1
+
+    crown_single = set(scan_reversed(available_singles))[0]
+
+    self.remove_piece_at(crown_single)
+    self.remove_piece_at(self.delayed_crown_squares[self.turn])
+    self.set_piece_at(self.delayed_crown_squares[self.turn], DOUBLE, self.turn)
+
+    return self.delayed_crown_squares[self.turn]
+
   def perform_crown(self, from_square: Square, to_square: Square):
     available_singles = self.occupied_co[self.turn] & self.singles ^ BB_SQUARES[from_square]
     if available_singles is not None:
@@ -446,6 +502,18 @@ class Board:
       print("No available singles for crown")
       self.delayed_crown[self.turn] = to_square
       return 0
+
+  def is_game_over(self):
+    if self.side_removed_all():
+      print(f"Game Over. Winner {COLOR_NAMES[not self.turn]}")
+      return True
+
+    return False
+
+  def side_removed_all(self):
+    if self.occupied_co[not self.turn] == 0:
+      print(self.occupied_co[not self.turn])
+      return True
 
   def is_legal(self, move: Move) -> bool:
     if not move:
@@ -491,6 +559,8 @@ class Game:
       print(f"{COLOR_NAMES[game.board.turn]} move {i}")
       moves = list(game.board.legal_moves)
       print(f"Legal moves {moves}")
+      if game.board.is_game_over():
+        break
       if len(moves):
         move = choice(moves)
         print(move)
@@ -506,11 +576,10 @@ class Game:
 
 game = Game()
 
-game.selfplay(300)
-
 # game.board.print_board()
 
 start = time.monotonic_ns()
+game.selfplay(300)
 
 end = time.monotonic_ns()
-print(f"Time elapsed during the process: {(end - start)} ns")
+print(f"Time elapsed during the process: {(end - start)/10**6} ns")
