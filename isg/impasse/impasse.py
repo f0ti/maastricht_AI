@@ -210,7 +210,7 @@ class Board:
 
     self.occupied = self.occupied_co[WHITE] | self.occupied_co[BLACK]
 
-  def pieces_mask(self, piece_type: PieceType, color: Color):
+  def pieces_mask(self, piece_type: PieceType, color: Color) -> Bitboard:
     if piece_type == SINGLE:
       bb = self.singles
     elif piece_type == DOUBLE:
@@ -220,7 +220,7 @@ class Board:
 
     return bb & self.occupied_co[color]
   
-  def piece_type_at(self, square: Square):
+  def piece_type_at(self, square: Square) -> PieceType:
     if square is None:
       return
 
@@ -270,7 +270,7 @@ class Board:
     self.occupied ^= mask
     self.occupied_co[color] ^= mask
 
-  def piece_at(self, square):
+  def piece_at(self, square) -> Piece:
     piece_type = self.piece_type_at(square)
     if piece_type:
       mask = BB_SQUARES[square]
@@ -318,9 +318,9 @@ class Board:
       
       yield square
 
-  def generate_basic_moves(self):
+  def generate_basic_moves(self) -> Generator:
     if self.turn:
-      # perform delayed crown
+      # perform delayed crown (not tested)
       if self.delayed_crown[self.turn]:
         self.delayed_crown_squares[self.turn] = self.perform_delayed_crown(self)
         self.delayed_crown[self.turn] = False
@@ -400,7 +400,7 @@ class Board:
           else:
             yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
-  def generate_impasse_moves(self):
+  def generate_impasse_moves(self) -> Generator:
     available_pieces = self.occupied_co[self.turn]  # pieces to remove
 
     for square in scan_reversed(available_pieces):
@@ -417,17 +417,15 @@ class Board:
       else:
         yield
 
-  def generate_moves(self):
-
+  def generate_moves(self) -> List:
     legal_moves = list(self.generate_basic_moves())
-    # generate legal impasse moves
+    # generate impasse moves
     if not len(legal_moves):
       legal_moves = list(self.generate_impasse_moves())
 
     return legal_moves
 
   def push(self, move: Move) -> None:
-    
     assert self.is_legal(move), "Illegal move"
 
     moving_piece = self.piece_at(move.from_square)
@@ -449,19 +447,19 @@ class Board:
 
     self.turn = not self.turn
 
-  def crown_available(self, to_square: Square):
+  def crown_available(self, to_square: Square) -> Bitboard:
     if self.turn:
       return BB_SQUARES[to_square] & BB_RANK_8
     else:
       return BB_SQUARES[to_square] & BB_RANK_1
 
-  def bearoff_available(self, to_square: Square):
+  def bearoff_available(self, to_square: Square) -> Bitboard:
     if self.turn:
       return BB_SQUARES[to_square] & BB_RANK_1  # a single move cannot reach the nearest row
     else:
       return BB_SQUARES[to_square] & BB_RANK_8
 
-  def transpose_available(self):
+  def transpose_available(self) -> List:
     available_transpose = []
 
     bb_singles = set(scan_reversed(self.occupied_co[self.turn] & self.singles))
@@ -482,6 +480,7 @@ class Board:
 
   def perform_delayed_crown(self):
     if self.turn:
+      # edge case, can you make delayed crown with two singles in the furthest rank?
       available_singles = self.occupied_co[self.turn] & self.singles ^ BB_RANK_8
       self.delayed_crown_squares[self.turn] = self.occupied_co[self.turn] & self.singles & BB_RANK_8
     else:
@@ -500,19 +499,21 @@ class Board:
     available_singles = self.occupied_co[self.turn] & self.singles ^ BB_SQUARES[from_square]
     if available_singles is not None:
       return available_singles
+    
+    # delayed crown
     else:
       print("No available singles for crown")
       self.delayed_crown[self.turn] = to_square
-      return 0
+      return False
 
-  def is_game_over(self):
+  def is_game_over(self) -> bool:
     if self.side_removed_all():
       print(f"Game Over. Winner {COLOR_NAMES[not self.turn]}")
       return True
 
     return False
 
-  def side_removed_all(self):
+  def side_removed_all(self) -> bool:
     if self.occupied_co[not self.turn] == 0:
       print(self.occupied_co[not self.turn])
       return True
@@ -574,8 +575,6 @@ class Game:
 
 
 game = Game()
-
-# game.board.print_board()
 
 start = time.monotonic_ns()
 game.selfplay(500)
