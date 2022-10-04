@@ -162,18 +162,23 @@ class Move:
       self.impasse = impasse
 
   def uci(self) -> str:
+    uci = f""
     if self.impasse is not None:
-      return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
-    elif self.crown is not None:
-      return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}[{SQUARE_NAMES[self.crown]}]"
+      uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
     elif self.delayed_crown is not None:
-      return f"[{SQUARE_NAMES[self.crown]}]{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+      uci = f"[{SQUARE_NAMES[self.crown]}]{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
     elif self.transpose:
-      return f"{SQUARE_NAMES[self.from_square]}-><-{SQUARE_NAMES[self.to_square]}"
-    elif self.bear_off:
-      return f"{SQUARE_NAMES[self.from_square]}x{SQUARE_NAMES[self.to_square]}"
+      uci = f"{SQUARE_NAMES[self.from_square]}-><-{SQUARE_NAMES[self.to_square]}"
     else:
-      return f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+      uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+
+    if self.bear_off:
+      uci += f"[X]"
+
+    if self.crown is not None:
+      uci += f"[{SQUARE_NAMES[self.crown]}]"
+
+    return uci
 
   def __repr__(self) -> str:
     return f"<Move>{self.uci()}"
@@ -261,7 +266,6 @@ class Board:
     elif piece_type == DOUBLE:
       self.doubles |= mask
     else:
-      print("O KARRR")
       return
 
     print(f"Piece {square} set")
@@ -321,7 +325,13 @@ class Board:
       if self.transpose_available():
         available_transposes = self.transpose_available()
         for from_square, to_square in available_transposes:
-          yield Move(from_square, to_square, transpose=True)
+          if self.crown_available(to_square):
+            if self.perform_crown(from_square, to_square):
+              available_singles = self.perform_crown(from_square, to_square)
+              for avs in scan_reversed(available_singles):
+                yield Move(from_square, to_square, crown=avs)
+          else:
+            yield Move(from_square, to_square, transpose=True)
 
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
@@ -350,7 +360,13 @@ class Board:
       if self.transpose_available():
         available_transposes = self.transpose_available()
         for from_square, to_square in available_transposes:
-          yield Move(from_square, to_square, transpose=True)
+          if self.crown_available(to_square):
+            if self.perform_crown(from_square, to_square):
+              available_singles = self.perform_crown(from_square, to_square)
+              for avs in scan_reversed(available_singles):
+                yield Move(from_square, to_square, crown=avs)
+          else:
+            yield Move(from_square, to_square, transpose=True)
 
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
@@ -472,8 +488,7 @@ class Game:
 
   def selfplay(self, iterations: int):
     for i in range(iterations):
-      print(f"Move {i}")
-      print(COLOR_NAMES[game.board.turn])
+      print(f"{COLOR_NAMES[game.board.turn]} move {i}")
       moves = list(game.board.legal_moves)
       print(f"Legal moves {moves}")
       if len(moves):
@@ -488,9 +503,10 @@ class Game:
       game.board.print_board()
       print("*" * 16)
 
+
 game = Game()
 
-game.selfplay(100)
+game.selfplay(300)
 
 # game.board.print_board()
 
