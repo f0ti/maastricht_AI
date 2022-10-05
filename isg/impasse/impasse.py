@@ -286,7 +286,8 @@ class Board:
 
     # down-right
     for r, f in zip(range(tr-1, -1, -1), range(tf+1, 8)):
-      square = (r*8 + f)
+      square = r*8 + f
+      # if occupied square is faced then stop the slide
       if (1 << square) & self.occupied:
         break
 
@@ -294,7 +295,7 @@ class Board:
 
     # down-left
     for r, f in zip(range(tr-1, -1, -1), range(tf-1, -1, -1)):
-      square = (r*8 + f)
+      square = r*8 + f
       if (1 << square) & self.occupied:
         break
       yield square
@@ -304,7 +305,7 @@ class Board:
 
     # up-right
     for r, f in zip(range(tr+1, 8), range(tf+1, 8)):
-      square = (r*8 + f)
+      square = r*8 + f
       if (1 << square) & self.occupied:
         break
       
@@ -312,7 +313,7 @@ class Board:
     
     # up-left
     for r, f in zip(range(tr+1, 8), range(tf-1, -1, -1)):
-      square = (r*8 + f)
+      square = r*8 + f
       if (1 << square) & self.occupied:
         break
       
@@ -320,7 +321,7 @@ class Board:
 
   def generate_basic_moves(self) -> Generator:
     if self.turn:
-      # perform delayed crown (not tested)
+      # DELAYED CROWN (not tested)
       if self.delayed_crown[self.turn]:
         self.delayed_crown_squares[self.turn] = self.perform_delayed_crown(self)
         self.delayed_crown[self.turn] = False
@@ -328,18 +329,22 @@ class Board:
       else:
         self.delayed_crown_squares[self.turn] = None
 
-      # perform transpose and then crown if available
+      # TRANSPOSE
       if self.transpose_available():
         available_transposes = self.transpose_available()
         for from_square, to_square in available_transposes:
+          # perform transpose and then crown if available
           if self.crown_available(to_square):
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
                 yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
+          elif self.bearoff_available(from_square):
+            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
             yield Move(from_square, to_square, transpose=True)
 
+      # SINGLE SLIDE
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
         for to_square in self.get_forward_moves(from_square):
@@ -353,6 +358,7 @@ class Board:
           else:
             yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
+      # DOUBLE SLIDE
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_backward_moves(from_square):
@@ -362,7 +368,7 @@ class Board:
             yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
     else:
-      # perform delayed crown (not tested)
+      # DELAYED CROWN (not tested)
       if self.delayed_crown[self.turn]:
         self.delayed_crown_squares[self.turn] = self.perform_delayed_crown()
         self.delayed_crown[self.turn] = False
@@ -370,6 +376,7 @@ class Board:
       else:
         self.delayed_crown_squares[self.turn] = None
       
+      # TRANSPOSE
       if self.transpose_available():
         available_transposes = self.transpose_available()
         for from_square, to_square in available_transposes:
@@ -378,9 +385,12 @@ class Board:
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
                 yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
+          elif self.bearoff_available(from_square):
+            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
             yield Move(from_square, to_square, transpose=True, delayed_crown=self.delayed_crown_squares[self.turn])
 
+      # SINGLE SLIDE
       single_moves = self.occupied_co[self.turn] & self.singles
       for from_square in scan_reversed(single_moves):
         for to_square in self.get_backward_moves(from_square):
@@ -392,6 +402,7 @@ class Board:
           else:
             yield Move(from_square, to_square, delayed_crown=self.delayed_crown_squares[self.turn])
 
+      # DOUBLE SLIDE
       double_moves = self.occupied_co[self.turn] & self.doubles
       for from_square in scan_reversed(double_moves):
         for to_square in self.get_forward_moves(from_square):
