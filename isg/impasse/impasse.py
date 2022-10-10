@@ -338,11 +338,11 @@ class Board:
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
-                yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
+                yield Move(from_square, to_square, transpose=True, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
           elif self.bearoff_available(from_square):
-            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
+            yield Move(from_square, to_square, transpose=True, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
-            yield Move(from_square, to_square, transpose=True)
+            yield Move(from_square, to_square, transpose=True, delayed_crown=self.delayed_crown_squares[self.turn])
 
       # SINGLE SLIDE
       single_moves = self.occupied_co[self.turn] & self.singles
@@ -447,6 +447,8 @@ class Board:
       self.set_piece_at(move.to_square, DOUBLE, moving_piece.color)
     elif move.bear_off:
       self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
+      if move.transpose:
+        self.set_piece_at(move.from_square, SINGLE, moving_piece.color)
     elif move.impasse_remove:
       if moving_piece.piece_type == DOUBLE:
         self.set_piece_at(move.from_square, SINGLE, moving_piece.color)  
@@ -563,31 +565,53 @@ class Board:
 class Game:
   def __init__(self) -> None:
     self.board = Board()
+    self.move_number = 0
 
-  def selfplay(self, iterations: int):
-    for i in range(iterations):
-      print(f"{COLOR_NAMES[game.board.turn]} move {i}")
+  def selfplay(self) -> None:
+    while not game.board.is_game_over():
+      self.move_number += 1
+      print(f"{COLOR_NAMES[game.board.turn]} move {self.move_number}")
+      
       moves = list(game.board.legal_moves)
       print(f"Legal moves {moves}")
-      if len(moves):
-        move = choice(moves)
-        print(move)
-        game.board.push(move)
-        if game.board.is_game_over():
-          game.board.print_board()
-          break
-      else:
-        print(f"No more legal moves for {COLOR_NAMES[game.board.turn]}")
-        game.board.print_board()
-        break
+
+      move = choice(moves)
+      game.board.push(move)
+      print(move)
       
       game.board.print_board()
       print("*" * 16)
 
+  def new_game(self):
+    game.board.print_board()
+    while not game.board.is_game_over():
+      self.move_number += 1
+      print(f"Move {self.move_number} - {COLOR_NAMES[game.board.turn]}")
+
+      if game.board.turn:
+        moves = list(game.board.legal_moves)
+        for i, m in enumerate(moves):
+          print(f"{i:02} - {m}")
+
+        # input move
+        selected_move_index = int(input("Write index move: "))
+        selected_move = moves[selected_move_index]
+      
+      else:
+        moves = list(game.board.legal_moves)
+        # print(f"Legal moves {moves}")
+
+        selected_move = choice(moves)
+
+      print(selected_move)
+      game.board.push(selected_move)
+
+      game.board.print_board()
+      print("*" * 16)
 
 game = Game()
 
 start = time.monotonic_ns()
-game.selfplay(500)
+game.new_game()
 end = time.monotonic_ns()
 print(f"Time elapsed during the process: {(end - start)/10**6} ms")
