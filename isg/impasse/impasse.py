@@ -1,4 +1,5 @@
 import time
+import gmpy2
 from random import choice
 from typing import Generator, Iterator, List, Optional
 from utils import print_legal_moves, render_mask
@@ -114,6 +115,9 @@ def scan_reversed(bb: Bitboard) -> Iterator[Square]:
     yield r
     bb ^= BB_SQUARES[r]
 
+def count_bits(bitboard: int) -> int:
+  return gmpy2.popcount(gmpy2.mpz(int(bitboard)))
+
 
 class Piece:
 
@@ -162,10 +166,11 @@ class Move:
 
     if self.impasse is not None:
       uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
-    elif self.transpose:
-      uci = f"{SQUARE_NAMES[self.from_square]}-><-{SQUARE_NAMES[self.to_square]}"
     else:
       uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+
+    if self.transpose:
+      uci += f"[-><-]"
 
     if self.impasse_remove:
       uci += f"[X][X]"
@@ -384,9 +389,9 @@ class Board:
             if self.perform_crown(from_square, to_square):
               available_singles = self.perform_crown(from_square, to_square)
               for avs in scan_reversed(available_singles):
-                yield Move(from_square, to_square, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
+                yield Move(from_square, to_square, transpose=True, crown=avs, delayed_crown=self.delayed_crown_squares[self.turn])
           elif self.bearoff_available(from_square):
-            yield Move(from_square, to_square, bear_off=True, delayed_crown=self.delayed_crown_squares[self.turn])
+            yield Move(from_square, to_square, bear_off=True, transpose=True, delayed_crown=self.delayed_crown_squares[self.turn])
           else:
             yield Move(from_square, to_square, transpose=True, delayed_crown=self.delayed_crown_squares[self.turn])
 
@@ -445,6 +450,8 @@ class Board:
 
     if move.crown is not None:
       self.set_piece_at(move.to_square, DOUBLE, moving_piece.color)
+      if move.transpose:
+        self.set_piece_at(move.from_square, DOUBLE, moving_piece.color)
     elif move.bear_off:
       self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
       if move.transpose:
@@ -568,28 +575,29 @@ class Game:
     self.move_number = 0
 
   def selfplay(self) -> None:
-    while not game.board.is_game_over():
+    while not self.board.is_game_over():
       self.move_number += 1
-      print(f"{COLOR_NAMES[game.board.turn]} move {self.move_number}")
+      print(f"{COLOR_NAMES[self.board.turn]} move {self.move_number}")
       
-      moves = list(game.board.legal_moves)
+      moves = list(self.board.legal_moves)
       print(f"Legal moves {moves}")
 
       move = choice(moves)
-      game.board.push(move)
+      self.board.push(move)
       print(move)
       
-      game.board.print_board()
+      self.board.print_board()
       print("*" * 16)
 
   def new_game(self):
-    game.board.print_board()
-    while not game.board.is_game_over():
+    self.board.print_board()
+    v = Valuator(self.board)
+    while not self.board.is_game_over():
       self.move_number += 1
-      print(f"Move {self.move_number} - {COLOR_NAMES[game.board.turn]}")
-
-      if game.board.turn:
-        moves = list(game.board.legal_moves)
+      print(f"Move {self.move_number} - {COLOR_NAMES[self.board.turn]}")
+      print(v.total_checkers())
+      if self.board.turn:
+        moves = list(self.board.legal_moves)
         for i, m in enumerate(moves):
           print(f"{i:02} - {m}")
 
@@ -598,16 +606,30 @@ class Game:
         selected_move = moves[selected_move_index]
       
       else:
-        moves = list(game.board.legal_moves)
-        # print(f"Legal moves {moves}")
+        moves = list(self.board.legal_moves)
+        for i, m in enumerate(moves):
+          print(f"{i:02} - {m}")
 
-        selected_move = choice(moves)
+        # input move
+        selected_move_index = int(input("Write index move: "))
+        selected_move = moves[selected_move_index]
 
       print(selected_move)
-      game.board.push(selected_move)
+      self.board.push(selected_move)
 
-      game.board.print_board()
+      self.board.print_board()
       print("*" * 16)
+
+
+class Valuator():
+  def __init__(self, board: Board) -> None:
+    self.board = board
+
+  def total_checkers(self) -> int:
+    return count_bits(self.board.occupied_co[self.board.turn])
+
+
+# ============== PLAY GAME ==============
 
 game = Game()
 
