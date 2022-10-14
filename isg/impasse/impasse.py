@@ -1,8 +1,9 @@
 from copy import deepcopy
 import time
+from traceback import print_tb
 import gmpy2
 from random import choice
-from typing import Generator, Generic, Iterator, List, Optional
+from typing import Generator, Generic, Iterator, List, Optional, TypeVar
 from utils import print_legal_moves, render_mask
 
 # ------ color ------
@@ -194,46 +195,49 @@ class Move:
     return self.uci()
 
 
-class BoardState():
-  def __init__(
-    self,
-    singles: Bitboard,
-    doubles: Bitboard,
-    occupied: Bitboard,
-    occupied_co_w: Bitboard,
-    occupied_co_b: Bitboard,
-    delayed_crown_w: bool,
-    delayed_crown_b: bool,
-    delayed_crown_squares_w: Square,
-    delayed_crown_squares_b: Square,
-    turn: Color
-    ) -> None:
+BoardT = TypeVar("BoardT", bound="Board")
 
-      self.singles = singles
-      self.doubles = doubles
-      
-      self.occupied = occupied
-      
-      self.occupied_w = occupied_co_w
-      self.occupied_b = occupied_co_b
+class BoardState(Generic[BoardT]):
+  def __init__(self, board: BoardT) -> None:
+    self.singles = board.singles
+    self.doubles = board.doubles
+    
+    self.occupied_w = board.occupied_co[WHITE]
+    self.occupied_b = board.occupied_co[BLACK]
+    self.occupied = board.occupied
+    # self.occupied_co = [self.occupied_b, self.occupied_w]
 
-      self.delayed_crown_w = delayed_crown_w
-      self.delayed_crown_b = delayed_crown_b
+    self.delayed_crown_w = board.delayed_crown[WHITE]
+    self.delayed_crown_b = board.delayed_crown[BLACK]
 
-      self.delayed_crown_squares_w = delayed_crown_squares_w
-      self.delayed_crown_squares_b = delayed_crown_squares_b
+    self.delayed_crown_squares_w = board.delayed_crown_squares[WHITE]
+    self.delayed_crown_squares_b = board.delayed_crown_squares[BLACK]
 
-      self.occupied_co = [self.occupied_b, self.occupied_w]
+    self.turn = board.turn
 
-      self.turn = turn
+  def restore(self, board: BoardT) -> None:
+    board.singles = self.singles
+    board.doubles = self.doubles
+
+    board.occupied = self.occupied
+    board.occupied_co[WHITE] = self.occupied_w
+    board.occupied_co[BLACK] = self.occupied_b
+    
+    board.delayed_crown[WHITE] = self.delayed_crown_w
+    board.delayed_crown[BLACK] = self.delayed_crown_b
+
+    board.delayed_crown_squares[WHITE] = self.delayed_crown_squares_w
+    board.delayed_crown_squares[BLACK] = self.delayed_crown_squares_b
+
+    board.turn = self.turn
 
 
 class Board:
   def __init__(self, board_state: BoardState = None) -> None:
     
     if board_state:
-      self.move_stack = []
-      self.stack = []
+      self.move_stack : List[Move] = []
+      self.stack : List[BoardState[BoardT]] = []
 
       self.turn = board_state.turn
 
@@ -253,6 +257,16 @@ class Board:
   @property
   def legal_moves(self) -> List:
     return self.generate_moves()
+
+  def pop(self: BoardT) -> Move:
+    
+    move = self.move_stack.pop()
+    self.stack.pop().restore(self)
+
+    return move
+
+  def board_state(self: BoardT) -> BoardState[BoardT]:
+    return BoardState(self)
 
   def reset_board(self) -> None:
     self.occupied_co = [BB_EMPTY, BB_EMPTY]
@@ -282,9 +296,9 @@ class Board:
       delayed_crown_b=self.delayed_crown[BLACK],
       delayed_crown_squares_w=self.delayed_crown_squares[WHITE],
       delayed_crown_squares_b=self.delayed_crown_squares[BLACK],
-      turn=self.turn
+      turn=self.turn,
     )
-
+  
   def pieces_mask(self, piece_type: PieceType, color: Color) -> Bitboard:
     if piece_type == SINGLE:
       bb = self.singles
@@ -516,7 +530,8 @@ class Board:
     assert self, "Move is None"
 
     self.move_stack.append(move)
-    self.stack.append(self)
+    board_state = self.board_state()
+    self.stack.append(board_state)
 
     moving_piece = self.piece_at(move.from_square)
     self.remove_piece_at(move.from_square)
@@ -645,6 +660,61 @@ class Board:
     print("".join(builder) + "\n")
 
 
+class Valuator():
+  def __init__(self) -> None:
+    pass
+
+  def reset(self):
+    self.count = 0
+
+  def __call__(self, board_state: Board) -> float:
+    return self.evaluate(board_state)
+
+  def total_checkers(self, board_state: Board) -> int:
+    return count_bits(board_state.occupied_co[board_state.turn])
+
+  def total_singles(self, board_state: Board) -> int:
+    return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles)
+
+  def total_doubles(self, board_state: Board) -> int:
+    return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles)
+
+  def singles_uppermost_halfboard(self, board_state: Board) -> int:
+    if board_state.turn:
+      return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles & BB_UPPER_HALF_RANKS)
+    else:
+      return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles & BB_LOWER_HALF_RANKS)
+
+  def doubles_lowermost_halfboard(self, board_state: Board) -> int:
+    if board_state.turn:
+      return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles & BB_LOWER_HALF_RANKS)
+    else:
+      return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles & BB_UPPER_HALF_RANKS)
+
+  def transpose_available(self, board_state: Board) -> int:
+    return bool(board_state.transpose_available())
+
+
+  def evaluate(self, board_state: Board) -> float:
+    
+    REG_FACTOR = 1
+    BIAS_SINGLES = 1/2
+    BIAS_DOUBLES = 1/4
+    BIAS_CHECKERS = 1/10
+    BIAS_UPPERMOST_SINGLES = 1/5
+    BIAS_LOWERMOST_DOUBLES = 1/5
+
+    value = REG_FACTOR * (
+        BIAS_SINGLES * self.total_singles(board_state)
+      + BIAS_DOUBLES * self.total_doubles(board_state)
+      + BIAS_CHECKERS * self.total_checkers(board_state)
+      + BIAS_UPPERMOST_SINGLES * self.singles_uppermost_halfboard(board_state)
+      + BIAS_LOWERMOST_DOUBLES * self.doubles_lowermost_halfboard(board_state)
+    )
+
+    return value
+
+
 class Game:
   def __init__(self) -> None:
     self.board = Board()
@@ -653,18 +723,31 @@ class Game:
 
   def selfplay(self) -> None:
     while not self.board.is_game_over():
-      self.move_number += 1
-      print(f"{COLOR_NAMES[self.board.turn]} move {self.move_number}")
-      
-      moves = list(self.board.legal_moves)
-      print(f"Legal moves {moves}")
+      if self.move_number == 2:
+        break
 
-      move = choice(moves)
-      self.board.push(move)
-      print(move)
+      self.move_number += 1
+      print(f"turn {COLOR_NAMES[self.board.turn]} move {self.move_number}")
       
+      moves = sorted(self.explore_leaves(self.board, self.v), key=lambda x: x[0], reverse=self.board.turn)
+      if len(moves) == 0:
+        print("no move")
+        return
+      
+      print("top 5:")
+      for i, m in enumerate(moves[0:5]):
+        print("  ", m)
+
+      # for i, (v, m) in enumerate(moves):
+      #   print(f"{i:02} - {v} - {m}")
+
+      # move = choice(moves)[1]
+      move = moves[0][1]
+      self.board.push(move)
+      print(f"Played move: {move}")
+
       self.board.print_board()
-      print("*" * 16)
+      print("=" * 20)
 
   def new_game(self):
     self.board.print_board()
@@ -672,13 +755,11 @@ class Game:
       self.move_number += 1
       print(f"Move {self.move_number} - {COLOR_NAMES[self.board.turn]}")
       # print(game.board.move_stack)
-      print("\nState Evaluations\n")
-      self.explore_leaves()
 
       if self.board.turn:
-        moves = list(self.board.legal_moves)
-        for i, m in enumerate(moves):
-          print(f"{i:02} - {m}")
+        moves = sorted(self.explore_leaves(), key=lambda x: x[0], reverse=self.board.turn)
+        for i, (m, v) in enumerate(zip(moves)):
+          print(f"{i:02} - {m} - {v}")
 
         # input move
         selected_move_index = int(input("Write index move: "))
@@ -699,53 +780,82 @@ class Game:
       self.board.print_board()
       print("*" * 16)
 
-  def explore_leaves(self):
-    board_state = deepcopy(self.board)
-    for e in board_state.legal_moves:
-      new_state = Board(board_state.get_state()).push(e)
-      new_state.turn = not new_state.turn
-      print(f"Last Move: {e}")
-      print(f"State Evaluation: {self.v.evaluate(new_state.get_state())}")
-      print(new_state.print_board())
+  def test_game(self):
+    self.board.print_board()
+    print(self.board.stack)
+    print(self.board.turn)
+    move = self.board.legal_moves[0]
+    print(self.board.stack)
+    self.board.push(move)
+    print(self.board.turn)
+    self.board.print_board()
+    undo_move = self.board.pop()
+    print(self.board.stack)
+    print(self.board.turn)
+    self.board.print_board()
 
+    return undo_move
 
-class Valuator():
-  def __init__(self) -> None:
-    pass
+  def minimax(self, s: Board, v: Valuator, depth: int, a, b, big=False):
+    if depth >= 5 or s.side_removed_all():
+      return self.v(s)
 
-  def total_checkers(self, board_state: BoardState) -> int:
-    return count_bits(board_state.occupied_co[board_state.turn])
-
-  def total_singles(self, board_state: BoardState) -> int:
-    return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles)
-
-  def total_doubles(self, board_state: BoardState) -> int:
-    return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles)
-
-  def singles_uppermost_halfboard(self, board_state: BoardState) -> int:
-    if board_state.turn:
-      return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles & BB_UPPER_HALF_RANKS)
+    turn = s.turn
+    print(turn)
+    print(depth)
+    if turn == WHITE:
+      ret = -10000
     else:
-      return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles & BB_LOWER_HALF_RANKS)
-
-  def evaluate(self, board_state: BoardState) -> float:
+      ret = 10000
     
-    REG_FACTOR = 0.1
-    BIAS_SINGLES = 0.8
-    BIAS_DOUBLES = 0.4
-    BIAS_CHECKERS =  0.5
-    BIAS_UPPERMOST_SINGLES = 2
+    if big:
+      bret = []
+    
+    isort = []
+    for m in s.legal_moves:
+      print(s.legal_moves)
+      new_state = Board(s.get_state()).push(m)
+      isort.append((self.v(new_state), m))
 
-    print(self.singles_uppermost_halfboard(board_state))
+    moves = sorted(isort, key=lambda x: x[0], reverse=self.board.turn)
 
-    value = REG_FACTOR * (
-        BIAS_SINGLES * self.total_singles(board_state)
-      + BIAS_DOUBLES * self.total_doubles(board_state)
-      + BIAS_CHECKERS * self.total_checkers(board_state)
-      + BIAS_UPPERMOST_SINGLES * self.singles_uppermost_halfboard(board_state)
-    )
+    # beam search beyond depth 3
+    if depth >= 3:
+      moves = moves[:10]
 
-    return value
+    for m in [x[1] for x in moves]:
+      new_state = Board(s.get_state()).push(m)
+      tval = self.minimax(new_state, v, depth+1, a, b)
+
+      if big:
+        bret.append((tval, m))
+
+      if new_state.turn == WHITE:
+        ret = max(ret, tval)
+        a = max(a, ret)
+        if a >= b:
+          break  # b cut-off
+      else:
+        ret = min(ret, tval)
+        b = min(b, ret)
+        if a >= b:
+          break  # a cut-off
+      
+    if big:
+      return ret, bret
+    else:
+      return ret
+
+  def explore_leaves(self, s: Board, v: Valuator):
+    ret = []
+    start = time.time()
+    self.v.reset()
+    bval = v(s)
+    cval, ret = self.minimax(s, v, 0, a=-10000, b=10000, big=True)
+    eta = time.time() - start
+    print(f"{bval:.2f} -> {cval:.2f}: explored {v.count} nodes in {eta:.3f} seconds {int(v.count/eta)}/sec")
+
+    return ret
 
 
 # ============== PLAY GAME ==============
@@ -753,6 +863,6 @@ class Valuator():
 game = Game()
 
 start = time.monotonic_ns()
-game.new_game()
+game.selfplay()
 end = time.monotonic_ns()
 print(f"Time elapsed during the process: {(end - start)/10**6} ms")
