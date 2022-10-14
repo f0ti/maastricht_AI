@@ -169,10 +169,7 @@ class Move:
     if self.delayed_crown is not None:
       uci += f"[{self.delayed_crown}]"
 
-    if self.impasse is not None:
-      uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
-    else:
-      uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
+    uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
 
     if self.transpose:
       uci += f"[-><-]"
@@ -668,6 +665,7 @@ class Valuator():
     self.count = 0
 
   def __call__(self, board_state: Board) -> float:
+    self.count += 1
     return self.evaluate(board_state)
 
   def total_checkers(self, board_state: Board) -> int:
@@ -694,9 +692,15 @@ class Valuator():
   def transpose_available(self, board_state: Board) -> int:
     return bool(board_state.transpose_available())
 
+  def singles_advantage(self, board_state:Board) -> int:
+    return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles) - count_bits(board_state.occupied_co[~board_state.turn] & board_state.singles)
+
+  def doubles_advantage(self, board_state:Board) -> int:
+    return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles) - count_bits(board_state.occupied_co[~board_state.turn] & board_state.doubles)
 
   def evaluate(self, board_state: Board) -> float:
     
+    '''
     REG_FACTOR = 1
     BIAS_SINGLES = 1/2
     BIAS_DOUBLES = 1/4
@@ -711,6 +715,9 @@ class Valuator():
       + BIAS_UPPERMOST_SINGLES * self.singles_uppermost_halfboard(board_state)
       + BIAS_LOWERMOST_DOUBLES * self.doubles_lowermost_halfboard(board_state)
     )
+    '''
+
+    value = self.singles_advantage(board_state) + self.doubles_advantage(board_state)
 
     return value
 
@@ -723,9 +730,6 @@ class Game:
 
   def selfplay(self) -> None:
     while not self.board.is_game_over():
-      if self.move_number == 2:
-        break
-
       self.move_number += 1
       print(f"turn {COLOR_NAMES[self.board.turn]} move {self.move_number}")
       
@@ -735,7 +739,7 @@ class Game:
         return
       
       print("top 5:")
-      for i, m in enumerate(moves[0:5]):
+      for m in moves[0:5]:
         print("  ", m)
 
       # for i, (v, m) in enumerate(moves):
@@ -749,33 +753,56 @@ class Game:
       self.board.print_board()
       print("=" * 20)
 
-  def new_game(self):
+  def human_human(self):
     self.board.print_board()
     while not self.board.is_game_over():
       self.move_number += 1
       print(f"Move {self.move_number} - {COLOR_NAMES[self.board.turn]}")
-      # print(game.board.move_stack)
 
+      moves = sorted(self.explore_leaves(self.board, self.v), key=lambda x: x[0], reverse=self.board.turn)
+      if len(moves) == 0:
+        print("no move")
+        return
+
+      for i, (v, m) in enumerate(moves):
+        print(f"{i:02} - {m} - {v}")
+
+      # input move
+      selected_move_index = int(input("Write index move: "))
+      selected_move = moves[selected_move_index][1]
+      print(selected_move)
+
+      self.board.push(selected_move)
+      print(f"Played move: {selected_move}")
+
+      self.board.print_board()
+      print("*" * 16)
+
+  def human_AI(self):
+    self.board.print_board()
+    while not self.board.is_game_over():
+      self.move_number += 1
+      print(f"Move {self.move_number} - {COLOR_NAMES[self.board.turn]}")
+
+      moves = sorted(self.explore_leaves(self.board, self.v), key=lambda x: x[0], reverse=self.board.turn)
+      if len(moves) == 0:
+        print("no move")
+        return
+
+      # hooman play
       if self.board.turn:
-        moves = sorted(self.explore_leaves(), key=lambda x: x[0], reverse=self.board.turn)
-        for i, (m, v) in enumerate(zip(moves)):
+        for i, (v, m) in enumerate(moves):
           print(f"{i:02} - {m} - {v}")
 
         # input move
         selected_move_index = int(input("Write index move: "))
-        selected_move = moves[selected_move_index]
-      
-      else:        
-        moves = list(self.board.legal_moves)
-        for i, m in enumerate(moves):
-          print(f"{i:02} - {m}")
+        selected_move = moves[selected_move_index][1]
 
-        # input move
-        selected_move_index = int(input("Write index move: "))
-        selected_move = moves[selected_move_index]
+      else:
+        selected_move = moves[0][1]
 
-      print(selected_move)
       self.board.push(selected_move)
+      print(f"Played move: {selected_move}")
 
       self.board.print_board()
       print("*" * 16)
@@ -797,12 +824,10 @@ class Game:
     return undo_move
 
   def minimax(self, s: Board, v: Valuator, depth: int, a, b, big=False):
-    if depth >= 5 or s.side_removed_all():
+    if depth >= 7 or s.side_removed_all():
       return self.v(s)
 
     turn = s.turn
-    print(turn)
-    print(depth)
     if turn == WHITE:
       ret = -10000
     else:
@@ -813,24 +838,25 @@ class Game:
     
     isort = []
     for m in s.legal_moves:
-      print(s.legal_moves)
-      new_state = Board(s.get_state()).push(m)
-      isort.append((self.v(new_state), m))
+      s.push(m)
+      isort.append((self.v(s), m))
+      s.pop()
 
-    moves = sorted(isort, key=lambda x: x[0], reverse=self.board.turn)
+    moves = sorted(isort, key=lambda x: x[0], reverse=s.turn)
 
     # beam search beyond depth 3
     if depth >= 3:
       moves = moves[:10]
 
     for m in [x[1] for x in moves]:
-      new_state = Board(s.get_state()).push(m)
-      tval = self.minimax(new_state, v, depth+1, a, b)
+      s.push(m)
+      tval = self.minimax(s, v, depth+1, a, b)
+      s.pop()
 
       if big:
         bret.append((tval, m))
 
-      if new_state.turn == WHITE:
+      if turn == WHITE:
         ret = max(ret, tval)
         a = max(a, ret)
         if a >= b:
@@ -863,6 +889,6 @@ class Game:
 game = Game()
 
 start = time.monotonic_ns()
-game.selfplay()
+game.human_AI()
 end = time.monotonic_ns()
 print(f"Time elapsed during the process: {(end - start)/10**6} ms")
