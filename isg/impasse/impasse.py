@@ -38,21 +38,6 @@ SQUARES = [
 
 SQUARE_NAMES = [f + r for r in RANK_NAMES for f in FILE_NAMES]
 
-def parse_square(name: str) -> Square:
-  return SQUARE_NAMES.index(name)
-
-def square_name(square: Square) -> str:
-  return SQUARE_NAMES[square]
-
-def square(file_index: int, rank_index: int) -> Square:
-  return rank_index * 8 + file_index
-
-def square_file(square: Square) -> int:
-  return square & 7
-
-def square_rank(square: Square) -> int:
-  return square >> 3
-
 def square_mirror(square: Square) -> Square:
   return square ^ 0x38
 
