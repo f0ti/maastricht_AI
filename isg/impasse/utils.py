@@ -1,4 +1,3 @@
-from typing import Generator
 import numpy as np
 
 def render_mask(bitboard):
