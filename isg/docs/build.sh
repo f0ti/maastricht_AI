@@ -11,6 +11,6 @@ sudo apt update
 sudo apt install caddy
 
 # run app
-mkdocs serve
-sudo caddy reverse-proxy --from :80 --to :8000
+mkdocs build
+sudo caddy file-server
 
