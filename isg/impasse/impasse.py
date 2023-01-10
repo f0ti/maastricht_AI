@@ -5,13 +5,32 @@ import gmpy2
 from typing import Generator, Generic, Iterator, List, Optional, TypeVar
 from utils import print_legal_moves, render_mask
 
-# ------ color ------
+"""
+  Color
+  -----
+    color is a boolean data type, either True for the White player
+    or False for the Black player
+"""
 
 Color = bool
 COLORS = [WHITE, BLACK] = [True, False]
 COLOR_NAMES = ["black", "white"]
 
-# ------ piece ------
+"""
+  Piece
+  -----
+  PieceType
+    piece type is an integer data type, 1 for the single pieces,
+    2 for the double (stacked) pieces
+  
+  PieceSymbols, PieceNames
+    since the engine is a console app, the peice symbols are represented
+    by the "⛀", "⛁" and "⛂", "⛃" UNICODE characters respectively for the
+    black and white and black pieces for each of the piece types
+    (0 index of the list is skipped so to ease the element access using the
+    PieceType (int) as indices)
+  
+"""
 
 PieceType = int
 PIECE_TYPES = [SINGLE, DOUBLE] = [1, 2]
@@ -19,7 +38,14 @@ PIECE_TYPES = [SINGLE, DOUBLE] = [1, 2]
 PIECE_SYMBOLS = (("None", "⛀", "⛁"), ("None", "⛂", "⛃"))
 PIECE_NAMES = [None, "single", "double"]
 
-# ------ square ------
+"""
+  Square
+  ------
+    square is an int data type for each of the 64 squares, indices order is
+    from left to right, with the bottom left square as index 0 and top right
+    square as index 63
+    https://www.chessprogramming.org/File:BBUniverse.jpg
+"""
 
 FILE_NAMES = ["a", "b", "c", "d", "e", "f", "g", "h"]
 RANK_NAMES = ["1", "2", "3", "4", "5", "6", "7", "8"]
@@ -41,7 +67,22 @@ SQUARE_NAMES = [f + r for r in RANK_NAMES for f in FILE_NAMES]
 def square_mirror(square: Square) -> Square:
   return square ^ 0x38
 
-# ------ bitboard ------
+"""
+  Bitboard
+  --------
+    one bitboard is an int data type, in binary it represents in ones
+    and zeros the occupied and free squares for the bitboard is represents
+    there are needed only 4 bitboards (integers) to keep the state of the
+    board at any time
+      - the black squares bitboard
+      - the white squares bitboard
+      - the single squares bitboard
+      - the double squares bitboard
+    bitwise conjuction (AND) of the above represents the board state
+
+    
+
+"""
 
 Bitboard = int
 BB_EMPTY = 0
@@ -740,6 +781,7 @@ class Valuator:
                BIAS_CHECKERS_DIS * self.checkers_disadvantage(board_state)
 
     return np.round(np.abs(h_value2), 2)
+
 
 class Game:
   def __init__(self) -> None:
