@@ -537,7 +537,6 @@ class Board:
 
     for square in scan_reversed(available_pieces):
       if self.piece_type_at(square) == SINGLE:
-        # single remove does not effect on crown status
         yield Move(square, square, impasse=True)
       elif self.piece_type_at(square) == DOUBLE:
         move = Move(square, square, impasse=True)
@@ -547,6 +546,8 @@ class Board:
           for cm in crown_moves:
             move.crown = cm 
             yield move
+        # if there is no crown available, yield the move which contains the
+        # piece to remove via the impasse rule
         else:
           yield move
       else:
@@ -676,7 +677,6 @@ class Board:
   # check if one side has removed all pieces
   def side_removed_all(self) -> bool:
     if self.occupied_co[not self.turn] == 0:
-      print(self.occupied_co[not self.turn])
       return True
 
   # print board
@@ -731,13 +731,16 @@ class Valuator:
     self.single_value = 5
     self.double_value = 3
 
+    self.transpose_value = 3
+    self.bearoff_value = 7
+    self.impasse_value = 7
+
   def reset(self):
     self.count = 0
 
   def __call__(self, board_state: Board, reached_end=False) -> float:
     if not reached_end:
       self.count += 1
-    # print(board_state.print_board())
     return self.evaluate(board_state)
 
   def total_pieces(self, board_state: Board) -> int:
@@ -749,21 +752,21 @@ class Valuator:
   def total_doubles(self, board_state: Board) -> int:
     return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles)
 
-  def singles_uppermost_halfboard(self, board_state: Board) -> int:
-    if board_state.turn:
-      return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles & BB_UPPER_HALF_RANKS)
-    else:
-      return count_bits(board_state.occupied_co[board_state.turn] & board_state.singles & BB_LOWER_HALF_RANKS)
-
-  def doubles_lowermost_halfboard(self, board_state: Board) -> int:
-    if board_state.turn:
-      return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles & BB_LOWER_HALF_RANKS)
-    else:
-      return count_bits(board_state.occupied_co[board_state.turn] & board_state.doubles & BB_UPPER_HALF_RANKS)
-
   def transpose_available(self, board_state: Board) -> int:
     return bool(board_state.transpose_available())
 
+  def impasse_available(self, board_state: Board) -> int:
+    legal_moves = list(board_state.generate_basic_moves())
+
+    # if there are legal moves available, then the list is not empty
+    # if the list is empty, then there are no legal moves available
+    # leading to an impasse situation
+
+    return not bool(len(legal_moves))
+
+  # the biggest the disadvantage, the better
+  # if disadvantage is negative, it will lead to a lower evaluation value
+  # the maximizing player aims to positively increase the difference of singlesreturn bool(board_state.bearoff_available())
   def singles_disadvantage(self, board_state: Board) -> int:
     return count_bits(board_state.occupied_co[~board_state.turn] & board_state.singles) - count_bits(board_state.occupied_co[board_state.turn] & board_state.singles)
 
@@ -785,7 +788,7 @@ class Valuator:
 
   def evaluate(self, board_state: Board) -> float:
     
-    # Evaluation Function 1
+    # Old Evaluation Function 1
 
     # BIAS_SINGLES_ADV = 0.3
     # BIAS_DOUBLES_ADV = 0.5
@@ -800,7 +803,7 @@ class Valuator:
     # )
 
 
-    # Evaluation Function 2
+    # Old Evaluation Function 2
 
     # BIAS_SINGLES_DIS = 0.5
     # BIAS_DOUBLES_DIS = 0.8
@@ -822,23 +825,32 @@ class Valuator:
     # if it is black's turn, then the top is the nearest for singles and the highest for doubles
     if board_state.turn:
       single_map = self.singles_map_array(board_state) * self.top_highest
-      print(single_map)
       double_map = self.doubles_map_array(board_state) * self.top_nearest
-      print(double_map)
     else:
       single_map = self.singles_map_array(board_state) * self.top_nearest
-      print(single_map)
       double_map = self.doubles_map_array(board_state) * self.top_highest
-      print(double_map)
-
-    print(np.sum(single_map))
-    print(np.sum(double_map))
 
     h_value3 = (
       self.total_singles(board_state) * self.single_value + np.sum(single_map) + \
-      self.total_doubles(board_state) * self.double_value + np.sum(double_map)
+      self.total_doubles(board_state) * self.double_value + np.sum(double_map) + \
+      self.singles_disadvantage(board_state) * self.single_value + \
+      self.doubles_disadvantage(board_state) * self.double_value + \
+      self.impasse_available(board_state) * self.impasse_value + \
+      self.transpose_available(board_state) * self.transpose_value -
+      4 * 5 - 4 * 3 - 2 - 2
     )
 
+    ## DEBUGGING INDIVIDUAL COMPONENTS OF THE EVALUATION FUNCTION ##
+
+    # print("Total singles: ", self.total_singles(board_state) * self.single_value + np.sum(single_map))
+    # print("Total doubles: ", self.total_doubles(board_state) * self.double_value + np.sum(double_map))
+    # print("Singles dsvgt: ", self.singles_disadvantage(board_state) * self.single_value)
+    # print("Doubles dsvgt: ", self.doubles_disadvantage(board_state) * self.double_value)
+    # print("Impasse      : ", self.impasse_available(board_state) * self.impasse_value)
+    # print("Transpose    : ", self.transpose_available(board_state) * self.transpose_value)
+    # print("Total        : ", h_value3)
+
+    # revert the turn change
     board_state.turn = ~board_state.turn
 
     return float(h_value3)
@@ -850,7 +862,7 @@ class Game:
     self.valuator = Valuator()
     self.move_number = 0
 
-  def selfplay(self) -> None:
+  def selfplay(self, random=False) -> None:
     while not self.board.is_game_over():
       self.move_number += 1
       print(f"turn {COLOR_NAMES[self.board.turn]} move {self.move_number}")
@@ -860,18 +872,19 @@ class Game:
         print("no move")
         return
       
-      print("top 5:")
-      for m in moves[0:5]:
+      print("Top 5 moves:")
+      for m in moves[:5]:
         print("  ", m)
 
-      # random move
-      # for i, (v, m) in enumerate(moves):
-      #   print(f"{i:02} - {v} - {m}")
-
-      # move = choice(moves)[1]
-      move = moves[0][1]
-      self.board.push(move)
-      print(f"Played move: {move}")
+      # moves are chosen randomly from the top 5 moves, mostly used for testing
+      if random:
+        selected_move_index = np.random.randint(0,len(moves))
+        selected_move = moves[selected_move_index][1]
+      else:
+        selected_move = moves[0][1]
+      
+      self.board.push(selected_move)
+      print(f"Played move: {selected_move}")
 
       self.board.print_board()
       print("=" * 20)
@@ -965,7 +978,7 @@ class Game:
 
   def alphabeta_minimax(self, state: Board, valuator: Valuator, depth: int, a: int, b: int, pv=False):
     
-    MAX_DEPTH = 1
+    MAX_DEPTH = 5
     assert MAX_DEPTH > 0, "Maximum depth must be greater than 0"
 
     # if depth is higher than MAX_DEPTH or game is over, return evaluation
@@ -988,20 +1001,13 @@ class Game:
     # evaluate all moves and save their value    
     move_ordering = []
     for move in state.legal_moves:
-      # print("Before push", state.legal_moves)
       state = state.push(move)
-      # print("After push", state.legal_moves)
       state_value = self.valuator(state)
-      print("Move:", move)
-      print("State value:", state_value)
-      # print(state.print_board())
       move_ordering.append((state_value, move))
       state.pop()
-      # print("After pop", state.legal_moves)
 
     # sort moves by value, descending for white, ascending for black
     moves = sorted(move_ordering, key=lambda x: x[0], reverse=state.turn)
-    print(moves)
 
     # get only top 10 moves if search depth goes beyond 3
     if depth >= 3:
@@ -1037,8 +1043,17 @@ class Game:
   def explore_leaves(self, state: Board, valuator: Valuator):
     start = time.time()
     
+    # print("Total singles: ", self.total_singles(board_state) * self.single_value + np.sum(single_map))
+    # print("Total doubles: ", self.total_doubles(board_state) * self.double_value + np.sum(double_map))
+    # print("Singles dsvgt: ", self.singles_disadvantage(board_state) * self.single_value)
+    # print("Doubles dsvgt: ", self.doubles_disadvantage(board_state) * self.double_value)
+    # print("Impasse      : ", self.impasse_available(board_state) * self.impasse_value)
+    # print("Transpose    : ", self.transpose_available(board_state) * self.transpose_value)
+    # print("Total        : ", h_value3)
     self.valuator.reset()
+    state.turn = ~state.turn
     current_evaluation = valuator(state)
+    state.turn = ~state.turn
     print("thinking...")
     search_evaluation, move_evaluation = self.alphabeta_minimax(state, valuator, 0, a=-1000, b=1000, pv=True)
     
@@ -1055,6 +1070,7 @@ class Game:
 game = Game()
 
 start = time.monotonic_ns()
-game.human_AI()
+game.selfplay()
+# game.human_AI()
 end = time.monotonic_ns()
 print(f"Time elapsed during the process: {(end - start)/10**6} ms")
