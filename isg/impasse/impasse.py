@@ -79,6 +79,12 @@ def square_mirror(square: Square) -> Square:
       - the single squares bitboard
       - the double squares bitboard
     bitwise conjuction (AND) of the above represents the board state
+
+    [+] Advantages
+      - very very fast move generation
+      - memory efficient
+    [-] Challenges
+      - complicated moves need more thought and sometimes are hard to generate with bitwise operators
 """
 
 Bitboard = int
@@ -142,6 +148,18 @@ def count_bits(bitboard: int) -> int:
   return gmpy2.popcount(gmpy2.mpz(int(bitboard)))
 
 
+"""
+  Piece
+  -----
+    a piece consists of (piece_type, color)
+    piece_type is a constant from the PieceType enum
+    color is a boolean, True for white, False for black
+
+    the symbol method returns the unicode symbol of the piece
+    "⛀", "⛁" and "⛂", "⛃"
+
+    the __repr__ and __str__ methods return the unicode symbol of the piece
+"""
 class Piece:
 
   def __init__(self, piece_type=SINGLE, color=True) -> None:
@@ -157,7 +175,22 @@ class Piece:
   def __str__(self) -> str:
     return f"{self.symbol()}"
 
+"""
+  Move
+  ----
+    a move consists of (from_square, to_square, transpose, bear_off, impasse, crown)
 
+    the __repr__ and __str__ methods return the uci representation of the move
+
+    the uci method returns the uci representation of the move
+    e.g. "a1b1", "a1b1[-><-]", "a1b1[X][X]", "a1b1[-><-][X][X]"
+
+    from_square and to_square are integers from 0 to 63
+    transpose is a boolean, True if the move is a transpose
+    bear_off is a boolean, True if the move is a bear off
+    impasse is a boolean, True if the move is an impasse
+    crown is an integer from 0 to 63, the square where the piece is crowned
+"""
 class Move:
   def __init__(
     self,
@@ -176,6 +209,7 @@ class Move:
       self.impasse = impasse
       self.crown = crown
 
+  # returns the uci representation of the move
   def uci(self) -> str:
 
     uci = f"{SQUARE_NAMES[self.from_square]}{SQUARE_NAMES[self.to_square]}"
@@ -203,6 +237,22 @@ class Move:
 
 BoardT = TypeVar("BoardT", bound="Board")
 
+"""
+  BoardState
+  ----------
+    a board state consists of (singles, doubles, occupied_w, occupied_b, occupied, turn)
+    
+    singles is a bitboard of the singles
+    doubles is a bitboard of the doubles
+    occupied_w is a bitboard of the white pieces
+    occupied_b is a bitboard of the black pieces
+    occupied is a bitboard of the occupied squares
+    turn is a boolean, True for white, False for black
+
+    the restore method restores the board state to a board
+
+    useful for storing the board state before making a move, and restoring it after
+"""
 class BoardState(Generic[BoardT]):
   def __init__(self, board: BoardT) -> None:
     self.singles = board.singles
@@ -225,7 +275,65 @@ class BoardState(Generic[BoardT]):
 
     board.turn = self.turn
 
+"""
+  Board
+  -----
+    a board consists of (move_stack, stack, turn, occupied_co, singles, doubles, occupied)
 
+    move_stack is a list of moves
+    stack is a list of board states
+    turn is a boolean, True for white, False for black
+    occupied_co is a list of bitboards of the white and black pieces
+    singles is a bitboard of the singles
+    doubles is a bitboard of the doubles
+    occupied is a bitboard of the occupied squares
+
+    the legal_moves property returns the legal moves as a list
+
+    the push method makes a move on the board and pushes the board state to the stack
+
+    the pop method pops the last move from the move stack and restores the board state
+
+    the board_state method returns the board state as a BoardState object
+
+    the reset_board method resets the board to the starting position
+
+    the piece_type_at method returns the piece type at a square
+
+    the remove_piece_at method removes a piece from a square
+
+    the set_piece_at method sets a piece at a square
+
+    the piece_at method returns the piece at a square
+
+    the get_backward_moves method returns the backward moves for white doubles and black singles
+
+    the get_forward_moves method returns the forward moves for white singles and black doubles
+
+    the generate_basic_moves method generates the basic moves (forward, backward, transpose and crown)
+
+    the generate_impasse_moves method generates the impasse moves
+
+    the generate_crown_moves method generates the crown moves
+
+    the peek_for_crown method peeks for a crown move
+
+    the crown_available method returns True if a crown move is available
+
+    the perform_crown method performs a crown move
+
+    the bearoff_available method returns True if a bear off move is available
+
+    the transpose_available method returns True if a transpose move is available
+
+    the generate_moves method generates all the legal moves (basic and impasse)
+
+    the is_game_over method returns True if the game is over
+
+    the side_removed_all_pieces method returns True if a side has removed all their pieces
+
+    the print_board method prints the board to the console, using the unicode pieces, . for empty squares
+"""
 class Board:
   def __init__(self, board_state: BoardState = None) -> None:
     
@@ -248,6 +356,42 @@ class Board:
   @property
   def legal_moves(self) -> List:
     return self.generate_moves()
+
+  def push(self, move: Move):
+    assert self, "Move is None"
+
+    self.move_stack.append(move)
+    board_state = self.board_state()
+    self.stack.append(board_state)
+
+    moving_piece = self.piece_at(move.from_square)
+    if moving_piece is None:
+      print("Move from square", move.from_square)
+      print("Move", move)
+    self.remove_piece_at(move.from_square)
+
+    if move.bear_off:
+      self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
+      if move.transpose:
+        self.set_piece_at(move.from_square, SINGLE, moving_piece.color)
+    elif move.impasse:
+      # if the removed checker was double, replace with a single
+      if moving_piece.piece_type == DOUBLE:
+        self.set_piece_at(move.from_square, SINGLE, moving_piece.color)  
+    elif move.transpose:
+      self.set_piece_at(move.from_square, DOUBLE, moving_piece.color)
+      self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
+    else:
+      self.set_piece_at(move.to_square, moving_piece.piece_type, moving_piece.color)
+
+    # perform crown
+    if move.crown is not None:
+      self.remove_piece_at(move.crown[1])
+      self.set_piece_at(move.crown[0], DOUBLE, moving_piece.color)
+
+    self.turn = not self.turn
+
+    return self
 
   def pop(self: BoardT) -> Move:
     
@@ -274,31 +418,6 @@ class Board:
     self.occupied_co[BLACK] = BB_D8 | BB_H8 | BB_A7 | BB_E7 | BB_B2 | BB_F2 | BB_C1 | BB_G1
 
     self.occupied = self.occupied_co[WHITE] | self.occupied_co[BLACK]
-
-  def get_state(self) -> BoardState:
-
-    return BoardState(
-      singles=self.singles,
-      doubles=self.doubles,
-      occupied=self.occupied,
-      occupied_co_w=self.occupied_co[WHITE],
-      occupied_co_b=self.occupied_co[BLACK],
-      delayed_crown_w=self.delayed_crown[WHITE],
-      delayed_crown_b=self.delayed_crown[BLACK],
-      delayed_crown_squares_w=self.delayed_crown_squares[WHITE],
-      delayed_crown_squares_b=self.delayed_crown_squares[BLACK],
-      turn=self.turn,
-    )
-  
-  def pieces_mask(self, piece_type: PieceType, color: Color) -> Bitboard:
-    if piece_type == SINGLE:
-      bb = self.singles
-    elif piece_type == DOUBLE:
-      bb = self.doubles
-    else:
-      assert False, "Incorrect PieceType"
-
-    return bb & self.occupied_co[color]
   
   def piece_type_at(self, square: Square) -> PieceType:
     if square is None:
@@ -573,14 +692,6 @@ class Board:
     else:
       return None
 
-  def generate_moves(self) -> List:
-    legal_moves = list(self.generate_basic_moves())
-    # generate impasse moves
-    if not len(legal_moves):
-      legal_moves = list(self.generate_impasse_moves())
-
-    return legal_moves
-
   def peek_for_crown(self, move: Move) -> List:
     self.push(move)
     self.turn = not self.turn
@@ -630,43 +741,14 @@ class Board:
 
     return available_transpose
 
-  def push(self, move: Move):
-    assert self, "Move is None"
+  def generate_moves(self) -> List:
+    legal_moves = list(self.generate_basic_moves())
+    # generate impasse moves
+    if not len(legal_moves):
+      legal_moves = list(self.generate_impasse_moves())
 
-    self.move_stack.append(move)
-    board_state = self.board_state()
-    self.stack.append(board_state)
+    return legal_moves
 
-    moving_piece = self.piece_at(move.from_square)
-    if moving_piece is None:
-      print("Move from square", move.from_square)
-      print("Move", move)
-    self.remove_piece_at(move.from_square)
-
-    if move.bear_off:
-      self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
-      if move.transpose:
-        self.set_piece_at(move.from_square, SINGLE, moving_piece.color)
-    elif move.impasse:
-      # if the removed checker was double, replace with a single
-      if moving_piece.piece_type == DOUBLE:
-        self.set_piece_at(move.from_square, SINGLE, moving_piece.color)  
-    elif move.transpose:
-      self.set_piece_at(move.from_square, DOUBLE, moving_piece.color)
-      self.set_piece_at(move.to_square, SINGLE, moving_piece.color)
-    else:
-      self.set_piece_at(move.to_square, moving_piece.piece_type, moving_piece.color)
-
-    # perform crown
-    if move.crown is not None:
-      self.remove_piece_at(move.crown[1])
-      self.set_piece_at(move.crown[0], DOUBLE, moving_piece.color)
-
-    self.turn = not self.turn
-
-    return self
-
-  # check if game is over
   def is_game_over(self) -> bool:
     if self.side_removed_all():
       print(f"Game Over. Winner {COLOR_NAMES[not self.turn]}")
@@ -674,12 +756,10 @@ class Board:
 
     return False
   
-  # check if one side has removed all pieces
   def side_removed_all(self) -> bool:
     if self.occupied_co[not self.turn] == 0:
       return True
 
-  # print board
   def print_board(self):
     builder = []
 
@@ -698,7 +778,50 @@ class Board:
 
     print("".join(builder) + "\n")
 
+"""
+  Valuator
+  --------
 
+  The valuator is used to evaluate the board state. It is used to determine
+  the best move for the AI to make. The valuator is based on the following
+  rules:
+    - more single pieces in the furthest row for white, the better, and likewise
+      more single pieces in the nearest  row for black, the better
+    - more double pieces in the nearest  row for white, the better, and likewise
+      more double pieces in the furthest row for black, the better
+    - The more single pieces, the better
+    - The less double pieces, the better
+
+    top_highest contains the value map for each square on the board for the pieces 
+    that are valued more if they are in the furthest row
+
+    top_nearest contains the value map for each square on the board for the pieces
+    that are valued more if they are in the nearest row
+
+    single_value is the value of a single piece
+
+    double_value is the value of a double piece
+
+    impasse_value is the value of an impasse move
+
+    crown_value is the value of a crown move
+
+    transpose_value is the value of a transpose move
+
+    singles_disadvantage is the difference in number of single pieces between the
+    opponent and the current moving side
+
+    doubles_disadvantage is the difference in number of double pieces between the
+    opponent and the current moving side
+
+    singles_map_array is the total value for each square on the board in accordance
+    to the value map position of the piece
+
+    doubles_map_array is the total value for each square on the board in accordance
+    to the value map position of the piece
+
+    evaluate is the total value of the board state
+"""
 class Valuator:
 
   def __init__(self) -> None:
@@ -732,7 +855,6 @@ class Valuator:
     self.double_value = 3
 
     self.transpose_value = 3
-    self.bearoff_value = 7
     self.impasse_value = 7
 
   def reset(self):
@@ -831,13 +953,12 @@ class Valuator:
       double_map = self.doubles_map_array(board_state) * self.top_highest
 
     h_value3 = (
-      self.total_singles(board_state) * self.single_value + np.sum(single_map) + \
-      self.total_doubles(board_state) * self.double_value + np.sum(double_map) + \
+      np.sum(single_map) + \
+      np.sum(double_map) + \
       self.singles_disadvantage(board_state) * self.single_value + \
       self.doubles_disadvantage(board_state) * self.double_value + \
       self.impasse_available(board_state) * self.impasse_value + \
-      self.transpose_available(board_state) * self.transpose_value -
-      4 * 5 - 4 * 3 - 2 - 2
+      self.transpose_available(board_state) * self.transpose_value
     )
 
     ## DEBUGGING INDIVIDUAL COMPONENTS OF THE EVALUATION FUNCTION ##
@@ -855,7 +976,28 @@ class Valuator:
 
     return float(h_value3)
 
+"""
+  Game
+  ----
 
+  Runs different game modes and AI search algorithm if needed
+
+    - selfplay: plays against itself, moves can also be randomly chosen,
+    otherwise the best move is chosen
+
+    - human_human: plays against another human, by printing each move to the
+    console with its index, and asking for the index of the move to be played
+
+    - human_AI: plays against the AI, by printing each move to the console with
+    its index, and asking for the index of the move to be played
+
+    - test_game: debugging environment
+
+    - alphabeta_minimax: runs the alphabeta minimax algorithm
+
+    - explore_leaves: initializes AI search environment with configs and runs the
+    minimax algorithm and returns the best moves
+"""
 class Game:
   def __init__(self) -> None:
     self.board = Board()
@@ -895,7 +1037,8 @@ class Game:
       self.move_number += 1
       print(f"Move {self.move_number} - {COLOR_NAMES[self.board.turn]}")
 
-      moves = sorted(self.explore_leaves(self.board, self.valuator), key=lambda x: x[0], reverse=self.board.turn)
+      evaluation_move, moves = sorted(self.explore_leaves(self.board, self.valuator), key=lambda x: x[0], reverse=self.board.turn)
+      print(evaluation_move)
       if len(moves) == 0:
         print("no move")
         return
@@ -936,6 +1079,7 @@ class Game:
         selected_move = moves[selected_move_index][1]
 
       else:
+        # AI plays the first best move in the list
         selected_move = moves[0][1]
 
       self.board.push(selected_move)
@@ -977,8 +1121,22 @@ class Game:
   # AI
 
   def alphabeta_minimax(self, state: Board, valuator: Valuator, depth: int, a: int, b: int, pv=False):
-    
-    MAX_DEPTH = 5
+
+    MAX_DEPTH = 3
+
+    # depth of search is variable depending on the number or legal moves and pieces on the board
+    legal_moves = state.legal_moves
+    if 0 < len(legal_moves) < 3:
+      MAX_DEPTH = 10
+    elif 3 <= len(legal_moves) < 8:
+      MAX_DEPTH = 7
+
+    nr_pieces = count_bits(state.occupied_co[state.turn])
+    if 0 < nr_pieces < 2:
+      MAX_DEPTH = 10
+    elif 2 <= nr_pieces < 5:
+      MAX_DEPTH = 7
+
     assert MAX_DEPTH > 0, "Maximum depth must be greater than 0"
 
     # if depth is higher than MAX_DEPTH or game is over, return evaluation
@@ -1043,23 +1201,13 @@ class Game:
   def explore_leaves(self, state: Board, valuator: Valuator):
     start = time.time()
     
-    # print("Total singles: ", self.total_singles(board_state) * self.single_value + np.sum(single_map))
-    # print("Total doubles: ", self.total_doubles(board_state) * self.double_value + np.sum(double_map))
-    # print("Singles dsvgt: ", self.singles_disadvantage(board_state) * self.single_value)
-    # print("Doubles dsvgt: ", self.doubles_disadvantage(board_state) * self.double_value)
-    # print("Impasse      : ", self.impasse_available(board_state) * self.impasse_value)
-    # print("Transpose    : ", self.transpose_available(board_state) * self.transpose_value)
-    # print("Total        : ", h_value3)
     self.valuator.reset()
-    state.turn = ~state.turn
-    current_evaluation = valuator(state)
-    state.turn = ~state.turn
+
     print("thinking...")
-    search_evaluation, move_evaluation = self.alphabeta_minimax(state, valuator, 0, a=-1000, b=1000, pv=True)
+    max_evaluation, move_evaluation = self.alphabeta_minimax(state, valuator, 0, a=-1000, b=1000, pv=True)
     
     search_time = time.time() - start
-
-    print(f"{current_evaluation:.2f} -> {search_evaluation:.2f}")
+    print("Board evaluation:", max_evaluation)
     print(f"Explored {valuator.count-1} nodes in {search_time:.3f} seconds | {int(valuator.count/search_time)} nodes/sec")
 
     return move_evaluation
